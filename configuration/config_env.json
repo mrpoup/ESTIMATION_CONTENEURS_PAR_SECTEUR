@@ -1,0 +1,10 @@
+{
+    "database":
+    {
+        "dbname":"eid",
+        "host":"localhost",
+        "port":5433,
+        "user":"postgres",
+        "password":"postgres"
+    }
+}
