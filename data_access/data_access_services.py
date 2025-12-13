@@ -55,6 +55,7 @@ class Data_access_services:
 
     def get_data_table_to_gdf(self,tablename:str,col_geometry='geometry', nb_maxi:int=-1,schema:str='points_enquete',crs="EPSG:2154"):
        
+        print(f'Load table {schema}.{tablename} from db')
         key = (schema, tablename, nb_maxi)
         # --- 1. Si existe dans le cache → on le renvoie immédiatement ---
         if key in self._cache:
