@@ -73,7 +73,9 @@ def enquetes_to_agreg_sites(TEST_MULTI_VF=False,AGREGATION_VF=True,distance_max_
     ren_type_enquete["Appel  l'EID pr plainte"]='plainte'
     ren_type_enquete['Porte  porte']='porte_a_porte'
     ren_type_enquete['Porte Ã  porte']='porte_a_porte'
+    ren_type_enquete['Porte à porte']='porte_a_porte'
     ren_type_enquete['Enquete entomo']='enquete_entomo'
+    ren_type_enquete['Porte à porte']='porte_a_porte'
 
     df_raw_data_filtered['type_enquete']=df_raw_data_filtered['type_enquete'].replace(ren_type_enquete)
     print(f'\nTYPES ENQUETES NEW:\n {df_raw_data_filtered['type_enquete'].value_counts()}')
