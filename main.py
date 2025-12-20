@@ -7,6 +7,8 @@ from services import modeles_services
 from services import metrics_services
 from services import cross_validation_services
 from services import simul_agreg_test
+from services import visu
+
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -84,13 +86,15 @@ if LOAD_RAW_FEATURES_VF:
     #
     gpd_filtered_features=gpd_filtered_features[gpd_filtered_features['visite_VF']==True]
     gpd_filtered_features=gpd_filtered_features[(gpd_filtered_features['contenant enterré']>=0) & (gpd_filtered_features['grand contenant']>=0) & (gpd_filtered_features['petit contenant']>=0)]
-
+    gpd_filtered_features=gpd_filtered_features[gpd_filtered_features['type_enquete'].isin(['plainte','enquete_entomo'])]
  
     print(f'\nFILTERED FEATURES:')
     print(f'->{len(gpd_filtered_features)} ligne(s)')
     print(f'->col: \n{gpd_filtered_features.columns}')
 
     print(gpd_filtered_features['type_enquete'].unique())
+    
+   
 
 
     print(gpd_filtered_features[['contenant enterré','grand contenant', 'petit contenant']].describe())
@@ -340,26 +344,27 @@ if LOAD_RAW_FEATURES_VF:
             'log1p_surf_buffer_m2_b10_m', 'log1p_surf_buffer_m2_b50_m'
         ]
 
-        TEST_AGGREG_ABC_VF=False
+        pks=(30, 60, 120,180,240,300)
+        TEST_AGGREG_ABC_VF=True
         if TEST_AGGREG_ABC_VF:
             agg_abc = simul_agreg_test.cv_aggregated_protocol_ABC(
                 X_B=X_C,
                 X_C=X_C,
                 y=y,
                 baseline_B_features=baseline_B_features,
-                group_sizes=(30, 60, 120),
+                group_sizes=pks,
                 n_draws=1000,
             )
             summary = agg_abc.groupby(["model", "group_size"]).agg(["mean", "std"])
             print(summary)
 
-        TEST_AGGREG_ABC_KNN_VF=False
-        TEST_AGGREG_ABC_KNN_VISU_VF=False
+        coords = gpd_filtered_features.loc[X_C.index, ["x_visite", "y_visite"]].to_numpy()
 
-        if  TEST_AGGREG_ABC_KNN_VF==False:
+        TEST_AGGREG_ABC_KNN_VF=True
+        TEST_AGGREG_ABC_KNN_VISU_VF=True
+
+        if  TEST_AGGREG_ABC_KNN_VF:
             Test_aggreg_ABC_KNN_summaries={}
-
-            coords = gpd_filtered_features.loc[X_C.index, ["x_visite", "y_visite"]].to_numpy()
 
             for target in targets:        
                 y = artifacts.Y[target]
@@ -370,7 +375,7 @@ if LOAD_RAW_FEATURES_VF:
                     coords=coords,
                     y=y,
                     baseline_B_features=baseline_B_features,
-                    k_values=(30, 60, 120),
+                    k_values=pks,
                 )
 
                 summary_spatial = (
@@ -381,184 +386,45 @@ if LOAD_RAW_FEATURES_VF:
                
                 Test_aggreg_ABC_KNN_summaries[target]=summary_spatial
 
-                if TEST_AGGREG_ABC_KNN_VISU_VF:
-                    print(target)
-                    print(summary_spatial)
+            if TEST_AGGREG_ABC_KNN_VISU_VF:
+                print(target)
+                print(summary_spatial)
+
+                visu.plot_graph1_multitarget(
+                summaries=Test_aggreg_ABC_KNN_summaries,
+                ks=pks ,
+                as_percent=True
+                )
+
+                visu.plot_graph1_ultra_decideur(
+                summaries=Test_aggreg_ABC_KNN_summaries,          # dict: {target_name: summary_df}
+                ks=pks,
+                as_percent=True
+                )
 
            
 
-            def _extract_curve(summary, model, metric, ks=(30, 60, 120)):
-                """
-                summary: DataFrame with index (model, group_size) and columns MultiIndex (metric, agg)
-                metric: "median_rse" or "p95_rse"
-                returns: y_mean, y_std as numpy arrays aligned with ks
-                """
-                y_mean = []
-                y_std = []
-                for k in ks:
-                    y_mean.append(summary.loc[(model, k), (metric, "mean")])
-                    y_std.append(summary.loc[(model, k), (metric, "std")])
-                return np.array(y_mean, dtype=float), np.array(y_std, dtype=float)
-            
-            def plot_graph1_multitarget(summaries, ks=(30, 60, 120), as_percent=True):
-                """
-                summaries: dict {target_name: summary_df}
-                """
-                targets = list(summaries.keys())
+        
 
-                models = [
-                    ("A_mean", "Baseline A (moyenne)"),
-                    ("B_neg_bin", "Baseline B (binomiale négative)"),
-                    ("C_lgbm_poisson", "Modèle C (surfaces + Poisson)"),
-                ]
+        modelC_factory = lambda: modeles_services.ModelCPoissonLGBM(params=None, random_state=42)
 
-                metrics = [
-                    ("median_rse", "Erreur médiane sur le total"),
-                    ("p95_rse", "Erreur dans 95% des cas (p95)"),
-                ]
+        k = 60
+        max_groups_per_fold=100
+        targets="contenant enterré", "grand contenant", "petit contenant"
+        target = "contenant enterré"
+        true_sums_C, pred_sums_C = visu.cv_collect_group_sums_modelC(
+        X_C=X_C,
+        coords=coords,
+        y=y,
+        modelC_factory=lambda: modeles_services.ModelCPoissonLGBM(params=None, random_state=42),
+        k=k,
+        max_groups_per_fold=max_groups_per_fold
+    )
 
-                fig, axes = plt.subplots(
-                    nrows=len(targets),
-                    ncols=len(metrics),
-                    figsize=(12, 3.6 * len(targets)),
-                    sharex=True
-                )
+    visu.plot_true_vs_pred_sector_sums(
+        true_sums_C, pred_sums_C,
+        title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
+    )
 
-                if len(targets) == 1:
-                    axes = np.array([axes])  # normalise
-
-                scale = 100.0 if as_percent else 1.0
-                y_label = "Erreur relative (%)" if as_percent else "Erreur relative (ratio)"
-
-                for i, target in enumerate(targets):
-                    summary = summaries[target]
-
-                    for j, (metric, metric_title) in enumerate(metrics):
-                        ax = axes[i, j]
-
-                        for model_code, model_label in models:
-                            y_mean, y_std = _extract_curve(summary, model_code, metric, ks=ks)
-
-                            ax.plot(ks, y_mean * scale, marker="o", label=model_label)
-                            # Option: bande +/- 1 std (ça aide à “voir” la stabilité)
-                            ax.fill_between(
-                                ks,
-                                (y_mean - y_std) * scale,
-                                (y_mean + y_std) * scale,
-                                alpha=0.12
-                            )
-
-                        if i == 0:
-                            ax.set_title(metric_title, fontsize=12)
-
-                        if j == 0:
-                            ax.set_ylabel(f"{target}\n{y_label}")
-
-                        ax.grid(True, alpha=0.2)
-                        ax.set_xticks(list(ks))
-                        ax.set_xlabel("Taille du pseudo-secteur (nombre de bâtiments)")
-
-                # Légende unique en bas
-                handles, labels = axes[0, 0].get_legend_handles_labels()
-                fig.legend(handles, labels, loc="lower center", ncol=1, frameon=False)
-                fig.suptitle("Précision des estimations par agrégation spatiale k-NN", fontsize=14, y=0.995)
-                fig.tight_layout(rect=[0, 0.06, 1, 0.97])
-
-                plt.show()
-
-            plot_graph1_multitarget(
-            summaries=Test_aggreg_ABC_KNN_summaries,
-            ks=(30, 60, 120),
-            as_percent=True
-            )
-
-
-
-            def _extract_curve(summary, model, metric, ks=(30, 60, 120)):
-                y_mean = []
-                y_std = []
-                for k in ks:
-                    y_mean.append(summary.loc[(model, k), (metric, "mean")])
-                    y_std.append(summary.loc[(model, k), (metric, "std")])
-                return np.array(y_mean, dtype=float), np.array(y_std, dtype=float)
-
-
-            def plot_graph1_ultra_decideur(
-                summaries: dict,
-                ks=(30, 60, 120),
-                as_percent=True
-            ):
-                """
-                Ultra-decider plot:
-                - Only p95 (risk)
-                - Only A_mean vs C_lgbm_poisson
-                - One panel per target
-                """
-                targets = list(summaries.keys())
-
-                models = [
-                    ("A_mean", "Sans modèle (moyenne)"),
-                    ("C_lgbm_poisson", "Avec modèle (surfaces + Poisson)"),
-                ]
-
-                metric = "p95_rse"
-                title = "Risque d’erreur sur le total d’un secteur (p95)"
-                subtitle = "Interprétation : dans 95% des cas, l’erreur sur le total est inférieure à ce pourcentage"
-
-                fig, axes = plt.subplots(
-                    nrows=len(targets),
-                    ncols=1,
-                    figsize=(10, 3.2 * len(targets)),
-                    sharex=True
-                )
-
-                if len(targets) == 1:
-                    axes = [axes]
-
-                scale = 100.0 if as_percent else 1.0
-                y_label = "Erreur relative (%)" if as_percent else "Erreur relative (ratio)"
-
-                for i, target in enumerate(targets):
-                    ax = axes[i]
-                    summary = summaries[target]
-
-                    for model_code, model_label in models:
-                        y_mean, y_std = _extract_curve(summary, model_code, metric, ks=ks)
-
-                        ax.plot(ks, y_mean * scale, marker="o", linewidth=2, label=model_label)
-                        ax.fill_between(
-                            ks,
-                            (y_mean - y_std) * scale,
-                            (y_mean + y_std) * scale,
-                            alpha=0.15
-                        )
-
-                        # Annotations (very readable): p95 values
-                        for x, yv in zip(ks, y_mean * scale):
-                            ax.annotate(f"{yv:.0f}%", (x, yv), textcoords="offset points", xytext=(0, 8), ha="center", fontsize=9)
-
-                    ax.set_ylabel(f"{target}\n{y_label}")
-                    ax.grid(True, alpha=0.2)
-                    ax.set_xticks(list(ks))
-
-                axes[-1].set_xlabel("Taille du secteur (nombre de bâtiments)")
-
-                # Legend + titles
-                handles, labels = axes[0].get_legend_handles_labels()
-                fig.legend(handles, labels, loc="lower center", ncol=2, frameon=False)
-
-                fig.suptitle(title, fontsize=14, y=0.995)
-                fig.text(0.5, 0.965, subtitle, ha="center", fontsize=10)
-
-                fig.tight_layout(rect=[0, 0.06, 1, 0.94])
-                plt.show()
-
-            plot_graph1_ultra_decideur(
-            summaries=Test_aggreg_ABC_KNN_summaries,          # dict: {target_name: summary_df}
-            ks=(30, 60, 120),
-            as_percent=True
-            )
-
-                
 
 
