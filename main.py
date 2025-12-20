@@ -87,7 +87,7 @@ if LOAD_RAW_FEATURES_VF:
     #
     gpd_filtered_features=gpd_filtered_features[gpd_filtered_features['visite_VF']==True]
     gpd_filtered_features=gpd_filtered_features[(gpd_filtered_features['contenant enterré']>=0) & (gpd_filtered_features['grand contenant']>=0) & (gpd_filtered_features['petit contenant']>=0)]
-    gpd_filtered_features=gpd_filtered_features[gpd_filtered_features['type_enquete'].isin(['plainte','enquete_entomo'])]
+    #gpd_filtered_features=gpd_filtered_features[gpd_filtered_features['type_enquete'].isin(['plainte','enquete_entomo'])]
  
     print(f'\nFILTERED FEATURES:')
     print(f'->{len(gpd_filtered_features)} ligne(s)')
@@ -448,21 +448,55 @@ if LOAD_RAW_FEATURES_VF:
     if TEST_APPROCHE_par_CLASSES_VF:
         #targets="contenant enterré", "grand contenant", "petit contenant"
         target = "contenant enterré"
-        n_classes=14
+        #methodes="quantile", "thresholds", "balanced_integers"
+        methode="balanced_integers"
+        n_classes=10
         creer_une_classe_specifique_pour_zero_vf=True
         #
         service =calcul_classes.TargetBinningService()
 
         art = service.build_classes(
             y=artifacts.Y[target],
-            spec=calcul_classes.BinningSpec(method="quantile", n_classes=n_classes, zero_as_own_class=creer_une_classe_specifique_pour_zero_vf),
+            spec=calcul_classes.BinningSpec(method=methode, n_classes=n_classes, zero_as_own_class=creer_une_classe_specifique_pour_zero_vf),
         )
 
         y_class = art.y_class
         bin_log = art.log
+        #
+        t_edges=methode+'_'+'edges'
+        #edges=bin_log.get(t_edges)
+        edges=bin_log[t_edges]
+        print(bin_log)
+        print(t_edges)
+        print(edges)
+        #sys.exit()
+
+        nb_lignes=sum([v for v in bin_log["class_counts"].values() ])
+
+        class_bounds = [
+        {
+            "class_id": i,
+            "lower_bound": low,
+            "upper_bound": high
+        }
+        for i, (low, high) in enumerate(zip(edges[:-1], edges[1:]))
+        ]
+        #
+        print('\n___________________________________')
         print(art.column_name)
-        print(bin_log["class_counts"])
-        print(bin_log.get("quantile_edges"))
+        print(f'nb indiv par classe:{bin_log["class_counts"]}')
+       
+        print(f'nb classes: {len(bin_log["class_counts"])} vs attendu: {n_classes}')
+        nb_lignes=sum([v for v in bin_log["class_counts"].values() ])
+        print(f'nb objets classés: {nb_lignes}')
+        print(f'edges: {edges}')
+        print(f'\nlimites de classes:')
+       
+        for b in class_bounds:
+            print(f'{b['class_id']}: {b['lower_bound']} -> {b['upper_bound']}')
+        print('___________________________________')
+
+
 
 
 
