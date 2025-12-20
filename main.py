@@ -325,18 +325,25 @@ if LOAD_RAW_FEATURES_VF:
         print("Number of ratio cols:", len(ratio_cols))
 
 
-        #__________________________________________
-        targets="contenant enterré", "grand contenant", "petit contenant"
-        target = "petit contenant"
-        #__________________________________________
+        
 
 
         TEST_BASES_LINES_VF=False
-        if TEST_BASES_LINES_VF:
-            tests_prealables.set_test_prealables(target,X,Y)
+        TEST_AGGREG_ABC_SANS_KNN_VF=False
+        #
+        TEST_AGGREG_ABC_KNN_VF=False
+        TEST_AGGREG_ABC_KNN_VISU_VF=True
+        if TEST_AGGREG_ABC_KNN_VISU_VF:
+            TEST_AGGREG_ABC_KNN_VF=True
+        #
+        TEST_VISU_COURBES_REGRESSION_VF=True  
+        #
+        TEST_APPROCHE_par_CLASSES_VF=True
 
+        #__________________________________________
+        targets="contenant enterré", "grand contenant", "petit contenant"
+        #__________________________________________
         
-        y = artifacts.Y[target]
         baseline_B_features = [
             "log1p_surf_batiment_source_m2",
             "hauteur_corrigee_m",
@@ -345,8 +352,22 @@ if LOAD_RAW_FEATURES_VF:
         ]
 
         pks=(30, 60, 120,180,240,300)
-        TEST_AGGREG_ABC_VF=True
-        if TEST_AGGREG_ABC_VF:
+        coords = gpd_filtered_features.loc[X_C.index, ["x_visite", "y_visite"]].to_numpy()
+
+
+        if TEST_BASES_LINES_VF:
+            #targets="contenant enterré", "grand contenant", "petit contenant"
+            target = "contenant enterré"
+            #
+            tests_prealables.set_test_prealables(target,X,Y)
+
+        
+        
+        if TEST_AGGREG_ABC_SANS_KNN_VF:
+            #targets="contenant enterré", "grand contenant", "petit contenant"
+            target = "contenant enterré"
+            #
+            y = artifacts.Y[target]
             agg_abc = simul_agreg_test.cv_aggregated_protocol_ABC(
                 X_B=X_C,
                 X_C=X_C,
@@ -358,10 +379,7 @@ if LOAD_RAW_FEATURES_VF:
             summary = agg_abc.groupby(["model", "group_size"]).agg(["mean", "std"])
             print(summary)
 
-        coords = gpd_filtered_features.loc[X_C.index, ["x_visite", "y_visite"]].to_numpy()
-
-        TEST_AGGREG_ABC_KNN_VF=True
-        TEST_AGGREG_ABC_KNN_VISU_VF=True
+        
 
         if  TEST_AGGREG_ABC_KNN_VF:
             Test_aggreg_ABC_KNN_summaries={}
@@ -402,29 +420,32 @@ if LOAD_RAW_FEATURES_VF:
                 as_percent=True
                 )
 
-           
-
         
+        if TEST_VISU_COURBES_REGRESSION_VF:
+            #targets="contenant enterré", "grand contenant", "petit contenant"
+            target = "contenant enterré"
+            k = 60
+            max_groups_per_fold=100
+            #
+            modelC_factory = lambda: modeles_services.ModelCPoissonLGBM(params=None, random_state=42)
+            #
+            true_sums_C, pred_sums_C = visu.cv_collect_group_sums_modelC(
+            X_C=X_C,
+            coords=coords,
+            y=y,
+            modelC_factory=lambda: modeles_services.ModelCPoissonLGBM(params=None, random_state=42),
+            k=k,
+            max_groups_per_fold=max_groups_per_fold
+        )
 
-        modelC_factory = lambda: modeles_services.ModelCPoissonLGBM(params=None, random_state=42)
+        visu.plot_true_vs_pred_sector_sums(
+            true_sums_C, pred_sums_C,
+            title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
+        )
 
-        k = 60
-        max_groups_per_fold=100
-        targets="contenant enterré", "grand contenant", "petit contenant"
-        target = "contenant enterré"
-        true_sums_C, pred_sums_C = visu.cv_collect_group_sums_modelC(
-        X_C=X_C,
-        coords=coords,
-        y=y,
-        modelC_factory=lambda: modeles_services.ModelCPoissonLGBM(params=None, random_state=42),
-        k=k,
-        max_groups_per_fold=max_groups_per_fold
-    )
-
-    visu.plot_true_vs_pred_sector_sums(
-        true_sums_C, pred_sums_C,
-        title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
-    )
+    TEST_APPROCHE_par_CLASSES_VF=True
+    if TEST_APPROCHE_par_CLASSES_VF:
+        pass
 
 
 
