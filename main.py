@@ -8,6 +8,7 @@ from services import metrics_services
 from services import cross_validation_services
 from services import simul_agreg_test
 from services import visu
+from services import calcul_classes
 
 
 from matplotlib import pyplot as plt
@@ -332,11 +333,11 @@ if LOAD_RAW_FEATURES_VF:
         TEST_AGGREG_ABC_SANS_KNN_VF=False
         #
         TEST_AGGREG_ABC_KNN_VF=False
-        TEST_AGGREG_ABC_KNN_VISU_VF=True
+        TEST_AGGREG_ABC_KNN_VISU_VF=False
         if TEST_AGGREG_ABC_KNN_VISU_VF:
             TEST_AGGREG_ABC_KNN_VF=True
         #
-        TEST_VISU_COURBES_REGRESSION_VF=True  
+        TEST_VISU_COURBES_REGRESSION_VF=False  
         #
         TEST_APPROCHE_par_CLASSES_VF=True
 
@@ -438,14 +439,30 @@ if LOAD_RAW_FEATURES_VF:
             max_groups_per_fold=max_groups_per_fold
         )
 
-        visu.plot_true_vs_pred_sector_sums(
-            true_sums_C, pred_sums_C,
-            title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
+            visu.plot_true_vs_pred_sector_sums(
+                true_sums_C, pred_sums_C,
+                title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
+            )
+
+
+    if TEST_APPROCHE_par_CLASSES_VF:
+        #targets="contenant enterré", "grand contenant", "petit contenant"
+        target = "contenant enterré"
+        n_classes=14
+        creer_une_classe_specifique_pour_zero_vf=True
+        #
+        service =calcul_classes.TargetBinningService()
+
+        art = service.build_classes(
+            y=artifacts.Y[target],
+            spec=calcul_classes.BinningSpec(method="quantile", n_classes=n_classes, zero_as_own_class=creer_une_classe_specifique_pour_zero_vf),
         )
 
-    TEST_APPROCHE_par_CLASSES_VF=True
-    if TEST_APPROCHE_par_CLASSES_VF:
-        pass
+        y_class = art.y_class
+        bin_log = art.log
+        print(art.column_name)
+        print(bin_log["class_counts"])
+        print(bin_log.get("quantile_edges"))
 
 
 
