@@ -19,7 +19,6 @@ def evaluate_aggregated_prediction(
 
 
 
-
 def aggregated_error_distribution(
     y_true: np.ndarray,
     y_pred: np.ndarray,

@@ -4,8 +4,10 @@ from sklearn.model_selection import KFold
 
 from services import modeles_services_regression
 from services import metrics_services_regression
-from services import aggregation_regression_eval_services
 from services import spatial_grouping_services
+from services import aggregation_eval_services
+from services import aggregation_regression_eval_services
+
 
 def cross_validate_baselines(
     X: pd.DataFrame,
@@ -77,36 +79,28 @@ def cv_aggregated_protocol_AB(
         for m in group_sizes:
             if m >= len(y_test_np):
                 continue
+            for m in group_sizes:
+                if m >= len(y_test_np):
+                    continue
+                
+                stats_A = aggregation_eval_services.summarize_aggregation_draws(aggregation_eval_services.draw_aggregated_errors(
+                    y_true=y_test_np,
+                    y_pred=y_pred_A,
+                    group_size=m,
+                    n_draws=n_draws,
+                    seed=fold * 1000 + m
+                    ))
+                all_records.append({"fold": fold, "model": "A_mean", "group_size": m,**stats_A})
 
-            rse_A = aggregation_regression_eval_services.aggregated_error_distribution(
-                y_true=y_test_np,
-                y_pred=y_pred_A,
-                group_size=m,
-                n_draws=n_draws,
-                seed=fold * 1000 + m
-            )
-            rse_B =  aggregation_regression_eval_services.aggregated_error_distribution(
-                y_true=y_test_np,
-                y_pred=y_pred_B,
-                group_size=m,
-                n_draws=n_draws,
-                seed=fold * 1000 + m + 1
-            )
 
-            all_records.append({
-                "fold": fold, "model": "A_mean", "group_size": m,
-                "mean_rse": float(np.mean(rse_A)),
-                "median_rse": float(np.median(rse_A)),
-                "p90_rse": float(np.quantile(rse_A, 0.90)),
-                "p95_rse": float(np.quantile(rse_A, 0.95)),
-            })
-            all_records.append({
-                "fold": fold, "model": "B_neg_bin", "group_size": m,
-                "mean_rse": float(np.mean(rse_B)),
-                "median_rse": float(np.median(rse_B)),
-                "p90_rse": float(np.quantile(rse_B, 0.90)),
-                "p95_rse": float(np.quantile(rse_B, 0.95)),
-            })
+                stats_B = aggregation_eval_services.summarize_aggregation_draws(aggregation_eval_services.draw_aggregated_errors(
+                    y_true=y_test_np,
+                    y_pred=y_pred_B,
+                    group_size=m,
+                    n_draws=n_draws,
+                    seed=fold * 1000 + m
+                    ))
+                all_records.append({"fold": fold, "model": "B_neg_bin", "group_size": m,**stats_B})
 
     return pd.DataFrame(all_records)
 
@@ -152,20 +146,31 @@ def cv_aggregated_protocol_ABC(
             if m >= len(y_test_np):
                 continue
 
-            rse_A =  aggregation_regression_eval_services.aggregated_error_distribution(y_test_np, y_pred_A, group_size=m, n_draws=n_draws, seed=fold*1000 + m)
-            rse_B =  aggregation_regression_eval_services.aggregated_error_distribution(y_test_np, y_pred_B, group_size=m, n_draws=n_draws, seed=fold*1000 + m + 1)
-            rse_C =  aggregation_regression_eval_services.aggregated_error_distribution(y_test_np, y_pred_C, group_size=m, n_draws=n_draws, seed=fold*1000 + m + 2)
+            stats_A = aggregation_eval_services.summarize_aggregation_draws(aggregation_eval_services.draw_aggregated_errors(
+                y_true=y_test_np,
+                y_pred=y_pred_A,
+                group_size=m,
+                n_draws=n_draws,
+                seed=fold * 1000 + m
+                ))
+            stats_B = aggregation_eval_services.summarize_aggregation_draws(aggregation_eval_services.draw_aggregated_errors(
+                y_true=y_test_np,
+                y_pred=y_pred_B,
+                group_size=m,
+                n_draws=n_draws,
+                seed=fold * 1000 + m
+                ))
+            stats_C = aggregation_eval_services.summarize_aggregation_draws(aggregation_eval_services.draw_aggregated_errors(
+                y_true=y_test_np,
+                y_pred=y_pred_C,
+                group_size=m,
+                n_draws=n_draws,
+                seed=fold * 1000 + m
+                ))
+            
+            for model_name, stat_o in [("A_mean", stats_A), ("B_neg_bin", stats_B), ("C_lgbm_poisson", stats_C)]:
+                all_records.append({"fold": fold, "model": model_name, "group_size": m,**stat_o})
 
-            for model_name, rse in [("A_mean", rse_A), ("B_neg_bin", rse_B), ("C_lgbm_poisson", rse_C)]:
-                all_records.append({
-                    "fold": fold,
-                    "model": model_name,
-                    "group_size": m,
-                    "mean_rse": float(np.mean(rse)),
-                    "median_rse": float(np.median(rse)),
-                    "p90_rse": float(np.quantile(rse, 0.90)),
-                    "p95_rse": float(np.quantile(rse, 0.95)),
-                })
 
     return pd.DataFrame(all_records)
 
