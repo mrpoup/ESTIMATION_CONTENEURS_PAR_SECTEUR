@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
-from services import modeles_services
-from services import metrics_services
+from services import modeles_services_regression
+from services import metrics_services_regression
 
 
 def cross_validate_baselines(
@@ -21,19 +21,19 @@ def cross_validate_baselines(
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
         # ---------- Baseline A ----------
-        A = modeles_services.BaselineMeanPredictor().fit(y_train)
+        A = modeles_services_regression.BaselineMeanPredictor().fit(y_train)
         y_pred_A = A.predict(len(y_test))
 
-        metrics_A =metrics_services.CountRegressionMetrics.compute_all(y_test, y_pred_A)
+        metrics_A =metrics_services_regression.CountRegressionMetrics.compute_all(y_test, y_pred_A)
         metrics_A["baseline"] = "A_mean"
         metrics_A["fold"] = fold
 
         # ---------- Baseline B ----------
-        B = modeles_services.BaselineNegativeBinomial(feature_cols=baseline_B_features)
+        B = modeles_services_regression.BaselineNegativeBinomial(feature_cols=baseline_B_features)
         B.fit(X_train, y_train)
         y_pred_B = B.predict(X_test)
 
-        metrics_B = metrics_services.CountRegressionMetrics.compute_all(y_test, y_pred_B)
+        metrics_B = metrics_services_regression.CountRegressionMetrics.compute_all(y_test, y_pred_B)
         metrics_B["baseline"] = "B_neg_bin"
         metrics_B["fold"] = fold
 

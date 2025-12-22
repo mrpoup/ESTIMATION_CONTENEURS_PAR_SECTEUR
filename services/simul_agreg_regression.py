@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
 from sklearn.neighbors import NearestNeighbors
-from services import modeles_services
+from services import modeles_services_regression
 
 
 def aggregated_error_distribution(y_true, y_pred, group_size, n_draws=1000, seed=42, eps=1e-9):
@@ -47,11 +47,11 @@ def cv_aggregated_protocol_AB(
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]  # keep aligned indices
 
         # ---- Baseline A (mean) ----
-        A = modeles_services.BaselineMeanPredictor().fit(y_train)
+        A = modeles_services_regression.BaselineMeanPredictor().fit(y_train)
         y_pred_A = A.predict(len(y_test))  # numpy array
 
         # ---- Baseline B (NB) ----
-        B = modeles_services.BaselineNegativeBinomial(feature_cols=baseline_B_features)
+        B = modeles_services_regression.BaselineNegativeBinomial(feature_cols=baseline_B_features)
         B.fit(X_train, y_train)  # aligned indices now
         y_pred_B = B.predict(X_test)  # numpy array
 
@@ -117,16 +117,16 @@ def cv_aggregated_protocol_ABC(
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
         # ---- A: mean baseline ----
-        A =modeles_services.BaselineMeanPredictor().fit(y_train)
+        A =modeles_services_regression.BaselineMeanPredictor().fit(y_train)
         y_pred_A = A.predict(len(y_test))
 
         # ---- B: negative binomial baseline ----
-        B = modeles_services.BaselineNegativeBinomial(feature_cols=baseline_B_features)
+        B = modeles_services_regression.BaselineNegativeBinomial(feature_cols=baseline_B_features)
         B.fit(Xb_train, y_train)
         y_pred_B = np.asarray(B.predict(Xb_test))
 
         # ---- C: LightGBM Poisson ----
-        C = modeles_services.ModelCPoissonLGBM(params=lgbm_params, random_state=random_state)
+        C = modeles_services_regression.ModelCPoissonLGBM(params=lgbm_params, random_state=random_state)
         C.fit(Xc_train, y_train)
         y_pred_C = np.asarray(C.predict(Xc_test))
 
@@ -203,16 +203,16 @@ def cv_spatial_knn_protocol_ABC(
         coords_test = coords[test_idx]
 
         # A — mean
-        A = modeles_services.BaselineMeanPredictor().fit(y_train)
+        A = modeles_services_regression.BaselineMeanPredictor().fit(y_train)
         y_pred_A = A.predict(len(y_test))
 
         # B — NB
-        B = modeles_services.BaselineNegativeBinomial(feature_cols=baseline_B_features)
+        B = modeles_services_regression.BaselineNegativeBinomial(feature_cols=baseline_B_features)
         B.fit(Xb_train, y_train)
         y_pred_B = np.asarray(B.predict(Xb_test))
 
         # C — LGBM Poisson
-        C = modeles_services.ModelCPoissonLGBM(params=lgbm_params, random_state=random_state)
+        C = modeles_services_regression.ModelCPoissonLGBM(params=lgbm_params, random_state=random_state)
         C.fit(Xc_train, y_train)
         y_pred_C = np.asarray(C.predict(Xc_test))
 

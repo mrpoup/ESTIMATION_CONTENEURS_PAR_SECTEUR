@@ -1,16 +1,16 @@
-from services import modeles_services
-from services import metrics_services
-from services import cross_validation_services
-from services import simul_agreg_test
+from services import modeles_services_regression
+from services import metrics_services_regression
+from services import cross_validation_services_regression
+from services import simul_agreg_regression
 
 
 def set_test_prealables(target:str,X,Y):
     y_true = Y[target]
 
-    baseline_A =modeles_services.BaselineMeanPredictor().fit(y_true)
+    baseline_A =modeles_services_regression.BaselineMeanPredictor().fit(y_true)
     y_pred_A = baseline_A.predict(len(y_true))
 
-    metrics_A = metrics_services.CountRegressionMetrics.compute_all(y_true, y_pred_A)
+    metrics_A = metrics_services_regression.CountRegressionMetrics.compute_all(y_true, y_pred_A)
 
     print(f'\n{target} Metrics sur baseline mean:')
     print(metrics_A)
@@ -24,18 +24,18 @@ def set_test_prealables(target:str,X,Y):
     ]
 
 
-    baseline_B = modeles_services.BaselineNegativeBinomial(feature_cols=baseline_B_features)
+    baseline_B = modeles_services_regression.BaselineNegativeBinomial(feature_cols=baseline_B_features)
     baseline_B.fit(X, y_true)
 
     y_pred_B = baseline_B.predict(X)
 
-    metrics_B = metrics_services.CountRegressionMetrics.compute_all(y_true, y_pred_B)
+    metrics_B = metrics_services_regression.CountRegressionMetrics.compute_all(y_true, y_pred_B)
 
     print(f'\n{target} sur baseline regression binomiale negative:')
     print(metrics_B)
 
 
-    cv_results = cross_validation_services.cross_validate_baselines(
+    cv_results = cross_validation_services_regression.cross_validate_baselines(
         X=X,
         y=Y[target],
         baseline_B_features=baseline_B_features,
@@ -53,7 +53,7 @@ def set_test_prealables(target:str,X,Y):
 
     #SIMULATION d'AGREGATION:
     groupes=(30, 60, 120)
-    agg_results = simul_agreg_test.cv_aggregated_protocol_AB(
+    agg_results = simul_agreg_regression.cv_aggregated_protocol_AB(
         X=X,
         y=Y[target],
         baseline_B_features=baseline_B_features,

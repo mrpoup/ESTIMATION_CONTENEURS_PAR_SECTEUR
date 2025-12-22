@@ -15,6 +15,10 @@ class DatasetArtifacts:
     feature_names: List[str]
     target_names: List[str]
 
+    def _reset_col_names_frm_data(self):
+        all_data_cols=self.X.columns
+        feature_names=all_data_cols
+
 
 class DataSchemaError(ValueError):
     """Raised when expected columns are missing or invalid."""
@@ -262,3 +266,6 @@ class BuildingsCountDataPreparationService:
         for c in out.columns:
             out[c] = pd.to_numeric(out[c], errors="raise")
         return out
+    
+
+        

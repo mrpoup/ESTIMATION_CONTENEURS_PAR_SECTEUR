@@ -2,11 +2,11 @@ import pandas as pd
 from data_access.data_access_services import Data_access_services
 from services import fichier_enquetes_to_agreg_sites_services as agreg_services
 from services import prepa_data_services
-from services import tests_prealables
-from services import modeles_services
-from services import metrics_services
-from services import cross_validation_services
-from services import simul_agreg_test
+from services import tests_prealables_regression
+from services import modeles_services_regression
+from services import metrics_services_regression
+from services import cross_validation_services_regression
+from services import simul_agreg_regression
 from services import visu
 from services import calcul_classes
 
@@ -263,7 +263,7 @@ if LOAD_RAW_FEATURES_VF:
     if TEST_ABC_VF:
         service = prepa_data_services.BuildingsCountDataPreparationService(id_col="id_maison")
 
-        artifacts = service.prepare_dataset(
+        dataset_obj = service.prepare_dataset(
             df=gpd_filtered_features,
             features_col=features_col,
             targets_col=targets_col,
@@ -273,7 +273,7 @@ if LOAD_RAW_FEATURES_VF:
             target_cols_to_keep=["contenant enterré", "grand contenant", "petit contenant"],
         )
 
-        X, Y, ids = artifacts.X, artifacts.Y, artifacts.ids
+        X, Y, ids = dataset_obj.X, dataset_obj.Y, dataset_obj.ids
 
         print(f'->colonnes x:\n {X.columns}')
         #sys.exit()
@@ -290,7 +290,7 @@ if LOAD_RAW_FEATURES_VF:
         # X = X.drop(columns=drop_cols)
 
         # Build Model C feature set (Config A)
-        X_full = artifacts.X.copy()
+        X_full = dataset_obj.X.copy()
 
         keep_cols = []
 
@@ -360,7 +360,7 @@ if LOAD_RAW_FEATURES_VF:
             #targets="contenant enterré", "grand contenant", "petit contenant"
             target = "contenant enterré"
             #
-            tests_prealables.set_test_prealables(target,X,Y)
+            tests_prealables_regression.set_test_prealables(target,X,Y)
 
         
         
@@ -368,8 +368,8 @@ if LOAD_RAW_FEATURES_VF:
             #targets="contenant enterré", "grand contenant", "petit contenant"
             target = "contenant enterré"
             #
-            y = artifacts.Y[target]
-            agg_abc = simul_agreg_test.cv_aggregated_protocol_ABC(
+            y = dataset_obj.Y[target]
+            agg_abc = simul_agreg_regression.cv_aggregated_protocol_ABC(
                 X_B=X_C,
                 X_C=X_C,
                 y=y,
@@ -386,9 +386,9 @@ if LOAD_RAW_FEATURES_VF:
             Test_aggreg_ABC_KNN_summaries={}
 
             for target in targets:        
-                y = artifacts.Y[target]
+                y = dataset_obj.Y[target]
 
-                spatial_results =simul_agreg_test.cv_spatial_knn_protocol_ABC(
+                spatial_results =simul_agreg_regression.cv_spatial_knn_protocol_ABC(
                     X_B=X_C,
                     X_C=X_C,
                     coords=coords,
@@ -428,13 +428,13 @@ if LOAD_RAW_FEATURES_VF:
             k = 60
             max_groups_per_fold=100
             #
-            modelC_factory = lambda: modeles_services.ModelCPoissonLGBM(params=None, random_state=42)
+            modelC_factory = lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
             #
             true_sums_C, pred_sums_C = visu.cv_collect_group_sums_modelC(
             X_C=X_C,
             coords=coords,
             y=y,
-            modelC_factory=lambda: modeles_services.ModelCPoissonLGBM(params=None, random_state=42),
+            modelC_factory=lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42),
             k=k,
             max_groups_per_fold=max_groups_per_fold
         )
@@ -448,15 +448,16 @@ if LOAD_RAW_FEATURES_VF:
     if TEST_APPROCHE_par_CLASSES_VF:
         #targets="contenant enterré", "grand contenant", "petit contenant"
         target = "contenant enterré"
+
         #methodes="quantile", "thresholds", "balanced_integers"
         methode="balanced_integers"
         n_classes=10
         creer_une_classe_specifique_pour_zero_vf=True
+        y=dataset_obj.Y[target]
         #
         service =calcul_classes.TargetBinningService()
 
-        art = service.build_classes(
-            y=artifacts.Y[target],
+        art = service.build_classes(y,
             spec=calcul_classes.BinningSpec(method=methode, n_classes=n_classes, zero_as_own_class=creer_une_classe_specifique_pour_zero_vf),
         )
 
@@ -495,6 +496,15 @@ if LOAD_RAW_FEATURES_VF:
         for b in class_bounds:
             print(f'{b['class_id']}: {b['lower_bound']} -> {b['upper_bound']}')
         print('___________________________________')
+
+
+        print(f'Colonne classe:')
+        class_col_name=f'Class_{target}_{methode[0:2]}{n_classes}'
+        print(class_col_name)
+        #
+        dataset_obj.X[class_col_name]=y_class
+
+       
 
 
 
