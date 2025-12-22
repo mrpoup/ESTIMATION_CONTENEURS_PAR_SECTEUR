@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
-from sklearn.neighbors import NearestNeighbors
+
 from services import modeles_services_regression
 from services import metrics_services_regression
+from services import aggregation_regression_eval_services
+from services import spatial_grouping_services
 
 def cross_validate_baselines(
     X: pd.DataFrame,
@@ -41,97 +43,6 @@ def cross_validate_baselines(
 
     return pd.DataFrame(records)
 
-def set_test_A_B(target:str,X,Y):
-    y_true = Y[target]
-
-    baseline_A =modeles_services_regression.BaselineMeanPredictor().fit(y_true)
-    y_pred_A = baseline_A.predict(len(y_true))
-
-    metrics_A = metrics_services_regression.CountRegressionMetrics.compute_all(y_true, y_pred_A)
-
-    print(f'\n{target} Metrics sur baseline mean:')
-    print(metrics_A)
-
-    #
-    baseline_B_features = [
-        "log1p_surf_batiment_source_m2",
-        "hauteur_corrigee_m",
-        "log1p_volume_batiment",
-        'log1p_surf_buffer_m2_b10_m', 'log1p_surf_buffer_m2_b50_m'
-    ]
-
-
-    baseline_B = modeles_services_regression.BaselineNegativeBinomial(feature_cols=baseline_B_features)
-    baseline_B.fit(X, y_true)
-
-    y_pred_B = baseline_B.predict(X)
-
-    metrics_B = metrics_services_regression.CountRegressionMetrics.compute_all(y_true, y_pred_B)
-
-    print(f'\n{target} sur baseline regression binomiale negative:')
-    print(metrics_B)
-
-
-    cv_results = cross_validate_baselines(
-        X=X,
-        y=Y[target],
-        baseline_B_features=baseline_B_features,
-    )
-    print(f'\n{target} CROSS VALIDATION RESULTS:  ')
-    print(cv_results)
-
-    summary = (
-        cv_results
-        .groupby("baseline")
-        .agg(["mean", "std"])
-    )
-    print(f'\n{target} CROSS VALIDATION SUMMARY RESULTS: ')
-    print(summary)
-
-    #SIMULATION d'AGREGATION:
-    groupes=(30, 60, 120)
-    agg_results = cv_aggregated_protocol_AB(
-        X=X,
-        y=Y[target],
-        baseline_B_features=baseline_B_features,
-        group_sizes=groupes,
-        n_draws=1000,
-    )
-    print(f'\n{target} CROSS VALIDATION ON AGGREG. RESULTS: ')
-    print(agg_results)
-
-    summary = (
-        agg_results
-        .groupby(["model", "group_size"])
-        .agg(["mean", "std"])
-    )
-
-    print(f'\n{target} CROSS VALIDATION ON AGGREG. SUMMARY RESULTS: ')
-    print(agg_results)
-    print(summary)
-
-def aggregated_error_distribution(y_true, y_pred, group_size, n_draws=1000, seed=42, eps=1e-9):
-    """
-    Draw random groups and compute relative sum error distribution.
-    Works with numpy arrays only (pandas Series are converted).
-    """
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-
-    rng = np.random.default_rng(seed)
-    n = len(y_true)
-    idx = np.arange(n)
-
-    rse = np.zeros(n_draws, dtype=float)
-
-    for k in range(n_draws):
-        sample_idx = rng.choice(idx, size=group_size, replace=False)
-        S = y_true[sample_idx].sum()
-        Shat = y_pred[sample_idx].sum()
-        rse[k] = abs(Shat - S) / (S + eps)
-
-    return rse
-
 
 
 
@@ -167,14 +78,14 @@ def cv_aggregated_protocol_AB(
             if m >= len(y_test_np):
                 continue
 
-            rse_A = aggregated_error_distribution(
+            rse_A = aggregation_regression_eval_services.aggregated_error_distribution(
                 y_true=y_test_np,
                 y_pred=y_pred_A,
                 group_size=m,
                 n_draws=n_draws,
                 seed=fold * 1000 + m
             )
-            rse_B = aggregated_error_distribution(
+            rse_B =  aggregation_regression_eval_services.aggregated_error_distribution(
                 y_true=y_test_np,
                 y_pred=y_pred_B,
                 group_size=m,
@@ -241,9 +152,9 @@ def cv_aggregated_protocol_ABC(
             if m >= len(y_test_np):
                 continue
 
-            rse_A = aggregated_error_distribution(y_test_np, y_pred_A, group_size=m, n_draws=n_draws, seed=fold*1000 + m)
-            rse_B = aggregated_error_distribution(y_test_np, y_pred_B, group_size=m, n_draws=n_draws, seed=fold*1000 + m + 1)
-            rse_C = aggregated_error_distribution(y_test_np, y_pred_C, group_size=m, n_draws=n_draws, seed=fold*1000 + m + 2)
+            rse_A =  aggregation_regression_eval_services.aggregated_error_distribution(y_test_np, y_pred_A, group_size=m, n_draws=n_draws, seed=fold*1000 + m)
+            rse_B =  aggregation_regression_eval_services.aggregated_error_distribution(y_test_np, y_pred_B, group_size=m, n_draws=n_draws, seed=fold*1000 + m + 1)
+            rse_C =  aggregation_regression_eval_services.aggregated_error_distribution(y_test_np, y_pred_C, group_size=m, n_draws=n_draws, seed=fold*1000 + m + 2)
 
             for model_name, rse in [("A_mean", rse_A), ("B_neg_bin", rse_B), ("C_lgbm_poisson", rse_C)]:
                 all_records.append({
@@ -257,35 +168,6 @@ def cv_aggregated_protocol_ABC(
                 })
 
     return pd.DataFrame(all_records)
-
-def spatial_knn_rse(
-    coords: np.ndarray,
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    k: int,
-    eps: float = 1e-9
-):
-    """
-    Compute relative sum error for spatial k-NN aggregation.
-    
-    coords : (n, 2) array of x, y coordinates
-    y_true : (n,) true values
-    y_pred : (n,) predicted values
-    k      : number of neighbors
-    """
-    n = len(y_true)
-    nbrs = NearestNeighbors(n_neighbors=k, algorithm="ball_tree").fit(coords)
-    _, indices = nbrs.kneighbors(coords)
-
-    rse = np.zeros(n, dtype=float)
-
-    for i in range(n):
-        idx = indices[i]
-        S = y_true[idx].sum()
-        Shat = y_pred[idx].sum()
-        rse[i] = abs(Shat - S) / (S + eps)
-
-    return rse
 
 def cv_spatial_knn_protocol_ABC(
     X_B,
@@ -327,9 +209,9 @@ def cv_spatial_knn_protocol_ABC(
             if k >= len(y_test_np):
                 continue
 
-            rse_A = spatial_knn_rse(coords_test, y_test_np, y_pred_A, k)
-            rse_B = spatial_knn_rse(coords_test, y_test_np, y_pred_B, k)
-            rse_C = spatial_knn_rse(coords_test, y_test_np, y_pred_C, k)
+            rse_A = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_A, k)
+            rse_B = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_B, k)
+            rse_C = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_C, k)
 
             for model_name, rse in [
                 ("A_mean", rse_A),
@@ -347,30 +229,6 @@ def cv_spatial_knn_protocol_ABC(
                 })
 
     return pd.DataFrame(records)
-
-def make_group_sums_knn(coords, y_true, y_pred, k=120, max_groups=600, seed=42):
-    """
-    Build sector-like groups with k-NN within a given TEST fold and return
-    arrays of (true_sum, pred_sum). Uses random subsampling of seeds to limit overlap.
-    """
-    coords = np.asarray(coords)
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-
-    n = len(y_true)
-    k = min(k, n)
-
-    nbrs = NearestNeighbors(n_neighbors=k, algorithm="ball_tree").fit(coords)
-    _, indices = nbrs.kneighbors(coords)
-
-    rng = np.random.default_rng(seed)
-    seeds = np.arange(n)
-    if max_groups is not None and max_groups < n:
-        seeds = rng.choice(seeds, size=max_groups, replace=False)
-
-    true_sums = np.array([y_true[indices[i]].sum() for i in seeds], dtype=float)
-    pred_sums = np.array([y_pred[indices[i]].sum() for i in seeds], dtype=float)
-    return true_sums, pred_sums
 
 
 def cv_collect_group_sums_modelC(
@@ -390,7 +248,7 @@ def cv_collect_group_sums_modelC(
         model.fit(X_train, y_train)
         y_pred_test = np.asarray(model.predict(X_test))
 
-        t, p = make_group_sums_knn(
+        t, p = spatial_grouping_services.make_group_sums_knn(
             coords=coords_test,
             y_true=y_test.to_numpy(),
             y_pred=y_pred_test,

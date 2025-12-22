@@ -3,12 +3,13 @@ from data_access.data_access_services import Data_access_services
 from services import fichier_enquetes_to_agreg_sites_services as agreg_services
 from services import prepa_data_services
 from services import modeles_services_regression
-from services import comparison_models_regression
+from services import comparison_regression_models_services
 from services import visu
 from services.classification_models import classif_baselines
 from services.classification_models.adapters import RegressionToClassBaseline
 from services import calcul_classes_services
-from services import comparison_models_classif
+from services import comparison_classification_models_services
+from services import test_models
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -325,21 +326,40 @@ if LOAD_RAW_FEATURES_VF:
         print("Number of ratio cols:", len(ratio_cols))
 
 
-        
-
-
-        TEST_BASES_LINES_VF=False
-        TEST_AGGREG_ABC_SANS_KNN_VF=False
+        #_______________________________________
         #
-        TEST_AGGREG_ABC_KNN_VF=False
-        TEST_AGGREG_ABC_KNN_VISU_VF=False
+        #MODELES 
         #
-        TEST_VISU_COURBES_REGRESSION_VF=False  
-        #
-        TEST_APPROCHE_par_CLASSES_VF=True
+        #_______________________________________
 
-        if TEST_VISU_COURBES_REGRESSION_VF or TEST_AGGREG_ABC_KNN_VISU_VF:
+        TEST_TOUT_VF=True
+        #_____________________
+        if TEST_TOUT_VF==False:
+            TEST_BASES_LINES_VF=False
+            TEST_AGGREG_ABC_SANS_KNN_VF=False
+            #
+            TEST_AGGREG_ABC_KNN_VF=False
+            TEST_AGGREG_ABC_KNN_VISU_VF=False
+            #
+            TEST_VISU_COURBES_REGRESSION_VF=False  
+            #
+            TEST_APPROCHE_par_CLASSES_VF=True
+
+        else:
+            TEST_BASES_LINES_VF=True
+            TEST_AGGREG_ABC_SANS_KNN_VF=True
+            #
             TEST_AGGREG_ABC_KNN_VF=True
+            TEST_AGGREG_ABC_KNN_VISU_VF=True
+            #
+            TEST_VISU_COURBES_REGRESSION_VF=True  
+            #
+            TEST_APPROCHE_par_CLASSES_VF=True
+
+
+        #CONTEXTE:
+        if TEST_VISU_COURBES_REGRESSION_VF or TEST_AGGREG_ABC_KNN_VISU_VF:
+                TEST_AGGREG_ABC_KNN_VF=True
 
 
         #__________________________________________
@@ -354,6 +374,7 @@ if LOAD_RAW_FEATURES_VF:
         ]
 
         pks=(30, 60, 120,180,240,300)
+        p_n_draws=1000
         coords = gpd_filtered_features.loc[X_C.index, ["x_visite", "y_visite"]].to_numpy()
 
 
@@ -361,22 +382,22 @@ if LOAD_RAW_FEATURES_VF:
             #targets="contenant enterré", "grand contenant", "petit contenant"
             target = "contenant enterré"
             #
-            comparison_models_regression.set_test_A_B(target,X,Y)
+            test_models.set_test_A_B(target,X,Y,pks=pks)
 
         
-        
+       
         if TEST_AGGREG_ABC_SANS_KNN_VF:
             #targets="contenant enterré", "grand contenant", "petit contenant"
             target = "contenant enterré"
             #
             y = dataset_obj.Y[target]
-            agg_abc = comparison_models_regression.cv_aggregated_protocol_ABC(
+            agg_abc = comparison_regression_models_services.cv_aggregated_protocol_ABC(
                 X_B=X_C,
                 X_C=X_C,
                 y=y,
                 baseline_B_features=baseline_B_features,
                 group_sizes=pks,
-                n_draws=1000,
+                n_draws=p_n_draws,
             )
             summary = agg_abc.groupby(["model", "group_size"]).agg(["mean", "std"])
             print(summary)
@@ -389,7 +410,7 @@ if LOAD_RAW_FEATURES_VF:
             for target in targets:        
                 y = dataset_obj.Y[target]
 
-                spatial_results =comparison_models_regression.cv_spatial_knn_protocol_ABC(
+                spatial_results =comparison_regression_models_services.cv_spatial_knn_protocol_ABC(
                     X_B=X_C,
                     X_C=X_C,
                     coords=coords,
@@ -431,7 +452,7 @@ if LOAD_RAW_FEATURES_VF:
             #
             modelC_factory = lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
             #
-            true_sums_C, pred_sums_C = comparison_models_regression.cv_collect_group_sums_modelC(
+            true_sums_C, pred_sums_C = comparison_regression_models_services.cv_collect_group_sums_modelC(
             X_C=X_C,
             coords=coords,
             y=y,
@@ -583,7 +604,7 @@ if LOAD_RAW_FEATURES_VF:
         #TEST X_B
         TEST_CLASSIF_X_B_FV=False
         if TEST_CLASSIF_X_B_FV:
-            classModelComparisonService=comparison_models_classif.ClassModelComparisonService()
+            classModelComparisonService=comparison_classification_models_services.ClassModelComparisonService()
             res_XB = classModelComparisonService.compare(
             X=X_B,
             y_class=y_cls,
@@ -595,7 +616,7 @@ if LOAD_RAW_FEATURES_VF:
         #TEST X_C
         TEST_CLASSIF_X_C_FV=True
         if TEST_CLASSIF_X_C_FV:
-            classModelComparisonService=comparison_models_classif.ClassModelComparisonService()
+            classModelComparisonService=comparison_classification_models_services.ClassModelComparisonService()
             res_XC = classModelComparisonService.compare(
             X=X_C,
             y_class=y_cls,
