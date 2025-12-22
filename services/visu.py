@@ -169,66 +169,6 @@ def plot_graph1_ultra_decideur(
 
 
 
-
-def make_group_sums_knn(coords, y_true, y_pred, k=120, max_groups=600, seed=42):
-    """
-    Build sector-like groups with k-NN within a given TEST fold and return
-    arrays of (true_sum, pred_sum). Uses random subsampling of seeds to limit overlap.
-    """
-    coords = np.asarray(coords)
-    y_true = np.asarray(y_true)
-    y_pred = np.asarray(y_pred)
-
-    n = len(y_true)
-    k = min(k, n)
-
-    nbrs = NearestNeighbors(n_neighbors=k, algorithm="ball_tree").fit(coords)
-    _, indices = nbrs.kneighbors(coords)
-
-    rng = np.random.default_rng(seed)
-    seeds = np.arange(n)
-    if max_groups is not None and max_groups < n:
-        seeds = rng.choice(seeds, size=max_groups, replace=False)
-
-    true_sums = np.array([y_true[indices[i]].sum() for i in seeds], dtype=float)
-    pred_sums = np.array([y_pred[indices[i]].sum() for i in seeds], dtype=float)
-    return true_sums, pred_sums
-
-
-def cv_collect_group_sums_modelC(
-    X_C, coords, y, modelC_factory,
-    k=120, n_splits=5, random_state=42, max_groups_per_fold=600
-    ):
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-    all_true = []
-    all_pred = []
-
-    for fold, (train_idx, test_idx) in enumerate(kf.split(X_C), start=1):
-        X_train, X_test = X_C.iloc[train_idx], X_C.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-        coords_test = coords[test_idx]
-
-        model = modelC_factory()
-        model.fit(X_train, y_train)
-        y_pred_test = np.asarray(model.predict(X_test))
-
-        t, p = make_group_sums_knn(
-            coords=coords_test,
-            y_true=y_test.to_numpy(),
-            y_pred=y_pred_test,
-            k=k,
-            max_groups=max_groups_per_fold,
-            seed=1000 * fold + k
-        )
-        all_true.append(t)
-        all_pred.append(p)
-
-    return np.concatenate(all_true), np.concatenate(all_pred)
-
-
-
-
-
 def plot_true_vs_pred_sector_sums(true_sums, pred_sums, title, gridsize=40):
     true_sums = np.asarray(true_sums, dtype=float)
     pred_sums = np.asarray(pred_sums, dtype=float)

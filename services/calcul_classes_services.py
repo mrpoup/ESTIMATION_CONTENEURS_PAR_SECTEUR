@@ -92,26 +92,36 @@ class TargetBinningService:
         if spec.method == "quantile":
             y_class, edges = self._bin_quantiles(y_clean, spec)
             method_details = {
-                spec.method+'_'+"edges": edges,
+                "edges": edges,
                 "effective_n_classes": int(y_class.max() - y_class.min() + 1),
             }
         elif spec.method == "thresholds":
             y_class, edges = self._bin_thresholds(y_clean, spec)
             method_details = {
-                spec.method+'_'+"edges": edges,
+                "edges": edges,
                 "effective_n_classes": int(y_class.max() - y_class.min() + 1),
             }
         elif spec.method == "balanced_integers":
             y_class, edges = self._bin_balanced_integers(y_clean, spec)
             method_details = {
-                spec.method+'_'+"edges": edges,  # list of (low_int, high_int) inclusive
+                "edges": edges,  # list of (low_int, high_int) inclusive
                 "effective_n_classes": int(y_class.max() - y_class.min() + 1),
             }
         else:
             raise ValueError(f"Unknown method: {spec.method}")
 
+        edges_with_inf=list(method_details["edges"]) + [float(np.inf)]
+        method_details["edges_with_inf"] = edges_with_inf
+        method_details["effective_n_classes"] = int(y_class.max() - y_class.min() + 1)
+
         # Build log
-        log = self._build_log(y_clean, y_class, spec, column_name, method_details)
+        log = self._build_log(y_clean, y_class, spec, column_name, method_details,edges,edges_with_inf)
+        log.update(self._add_normalized_thresholds(spec, method_details))
+
+        normalized = self._normalize_binning_info_for_log(spec, method_details)       
+        log.update(normalized)
+
+ 
 
         return BinningArtifacts(
             y_class=y_class.rename(column_name),
@@ -302,6 +312,52 @@ class TargetBinningService:
 
         return y_class, edges_with_inf
 
+    def _add_normalized_thresholds(self, spec: BinningSpec, method_details: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add stable keys for downstream usage:
+        - thresholds_finite: list of finite upper bounds used for np.digitize
+        - edges_with_inf: thresholds_finite + [inf]
+        This works for quantile / thresholds / balanced_integers.
+        """
+        out: Dict[str, Any] = {}
+
+        # Case 1: thresholds method
+        thr = method_details.get("threshold_edges")
+        if thr is not None:
+            out["thresholds_finite"] = list(thr)
+            out["edges_with_inf"] = list(thr) + [float(np.inf)]
+            return out
+
+        # Case 2: quantile method
+        q_edges = method_details.get("quantile_edges")
+        if q_edges is not None:
+            # quantile_edges are full edges (min..max), convert to internal thresholds
+            # Example: [0, 2.5, 6, 120] => thresholds [2.5, 6]
+            thresholds = list(q_edges[1:-1]) if len(q_edges) >= 3 else []
+            out["thresholds_finite"] = thresholds
+            out["edges_with_inf"] = thresholds + [float(np.inf)]
+            return out
+
+        # Case 3: balanced_integers method
+        ranges = method_details.get("integer_class_ranges")
+        if ranges is not None:
+            # Convert ranges -> thresholds (= upper bounds except last)
+            thresholds = [int(hi) for (_, hi) in ranges[:-1]]
+            out["thresholds_finite"] = thresholds
+            out["edges_with_inf"] = thresholds + [float(np.inf)]
+            out["ranges_inclusive"] = [(int(lo), int(hi)) for (lo, hi) in ranges]
+            return out
+
+        # Alternative if your balanced implementation returns edges directly
+        edges_with_inf = method_details.get("edges_with_inf") or method_details.get("integer_edges_with_inf")
+        if edges_with_inf is not None:
+            thresholds = [int(e) for e in edges_with_inf if np.isfinite(e)]
+            out["thresholds_finite"] = thresholds
+            out["edges_with_inf"] = thresholds + [float(np.inf)]
+            return out
+
+        return out
+
 
 
     # ------------------------
@@ -322,6 +378,8 @@ class TargetBinningService:
         spec: BinningSpec,
         column_name: str,
         method_details: Dict[str, Any],
+        edges,
+        edges_with_inf,
     ) -> Dict[str, Any]:
         # Class counts
         vc = y_class.value_counts(dropna=False).sort_index()
@@ -339,6 +397,8 @@ class TargetBinningService:
             "class_counts": class_counts,
             "n_samples": int(len(y)),
             "n_unique_target_values": int(y.nunique()),
+            "edges":edges,
+            "edges_with_inf": edges_with_inf,
         }
         log.update(method_details)
         return log
@@ -358,3 +418,54 @@ class TargetBinningService:
         while "__" in s:
             s = s.replace("__", "_")
         return s.strip("_")
+    
+    def _normalize_binning_info_for_log(self, spec: BinningSpec, method_details: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Ensure a stable set of keys exists in the log for downstream consumers:
+        - thresholds_finite: list of finite upper bounds (ints if possible)
+        - edges_with_inf: thresholds_finite + [inf]
+        - ranges_inclusive: optional list of (low, high) inclusive
+        """
+        out: Dict[str, Any] = {}
+
+        # quantile mode
+        if spec.method == "quantile":
+            edges = method_details.get("quantile_edges", None)
+            if edges is not None and len(edges) >= 2:
+                # edges are min..max; convert to thresholds (= internal upper bounds)
+                # Example edges: [0, 1.2, 3.7, 10] -> thresholds: [1.2, 3.7]
+                thresholds = list(edges[1:-1])
+                out["thresholds_finite"] = thresholds
+                out["edges_with_inf"] = thresholds + [float(np.inf)]
+            return out
+
+        # thresholds mode
+        if spec.method == "thresholds":
+            thr = method_details.get("threshold_edges", None)
+            if thr is not None:
+                out["thresholds_finite"] = list(thr)
+                out["edges_with_inf"] = list(thr) + [float(np.inf)]
+            return out
+
+        # balanced_integers mode
+        if spec.method == "balanced_integers":
+            ranges = method_details.get("integer_class_ranges", None)
+
+            # Case A: we already have integer ranges [(low, high), ...]
+            if ranges is not None and len(ranges) >= 1:
+                out["ranges_inclusive"] = [(int(a), int(b)) for (a, b) in ranges]
+                thresholds = [int(hi) for (_, hi) in ranges[:-1]]
+                out["thresholds_finite"] = thresholds
+                out["edges_with_inf"] = thresholds + [float(np.inf)]
+                return out
+
+            # Case B: method_details directly provides edges_with_inf already
+            edges_with_inf = method_details.get("edges_with_inf", None)
+            if edges_with_inf is not None:
+                thresholds = [e for e in edges_with_inf if np.isfinite(e)]
+                out["thresholds_finite"] = [int(t) for t in thresholds]
+                out["edges_with_inf"] = [int(t) for t in thresholds] + [float(np.inf)]
+                return out
+
+        return out
+

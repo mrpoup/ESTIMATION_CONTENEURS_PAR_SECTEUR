@@ -2,14 +2,13 @@ import pandas as pd
 from data_access.data_access_services import Data_access_services
 from services import fichier_enquetes_to_agreg_sites_services as agreg_services
 from services import prepa_data_services
-from services import tests_prealables_regression
 from services import modeles_services_regression
-from services import metrics_services_regression
-from services import cross_validation_services_regression
-from services import simul_agreg_regression
+from services import comparison_models_regression
 from services import visu
-from services import calcul_classes
-
+from services.classification_models import classif_baselines
+from services.classification_models.adapters import RegressionToClassBaseline
+from services import calcul_classes_services
+from services import comparison_models_classif
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -290,7 +289,7 @@ if LOAD_RAW_FEATURES_VF:
         # X = X.drop(columns=drop_cols)
 
         # Build Model C feature set (Config A)
-        X_full = dataset_obj.X.copy()
+        X_all_features = dataset_obj.X.copy()
 
         keep_cols = []
 
@@ -312,11 +311,11 @@ if LOAD_RAW_FEATURES_VF:
         ]
 
         # C3: composition ratios
-        ratio_cols = [c for c in X_full.columns if c.startswith("ratio_")]
+        ratio_cols = [c for c in X_all_features.columns if c.startswith("ratio_")]
         keep_cols += ratio_cols
 
         # Final X for model C
-        X_C = X_full[keep_cols].copy()
+        X_C = X_all_features[keep_cols].copy()
 
         # Sanity checks (minimal)
         assert X_C.isna().sum().sum() == 0, "NaNs found in X_C"
@@ -334,12 +333,14 @@ if LOAD_RAW_FEATURES_VF:
         #
         TEST_AGGREG_ABC_KNN_VF=False
         TEST_AGGREG_ABC_KNN_VISU_VF=False
-        if TEST_AGGREG_ABC_KNN_VISU_VF:
-            TEST_AGGREG_ABC_KNN_VF=True
         #
         TEST_VISU_COURBES_REGRESSION_VF=False  
         #
         TEST_APPROCHE_par_CLASSES_VF=True
+
+        if TEST_VISU_COURBES_REGRESSION_VF or TEST_AGGREG_ABC_KNN_VISU_VF:
+            TEST_AGGREG_ABC_KNN_VF=True
+
 
         #__________________________________________
         targets="contenant enterré", "grand contenant", "petit contenant"
@@ -360,7 +361,7 @@ if LOAD_RAW_FEATURES_VF:
             #targets="contenant enterré", "grand contenant", "petit contenant"
             target = "contenant enterré"
             #
-            tests_prealables_regression.set_test_prealables(target,X,Y)
+            comparison_models_regression.set_test_A_B(target,X,Y)
 
         
         
@@ -369,7 +370,7 @@ if LOAD_RAW_FEATURES_VF:
             target = "contenant enterré"
             #
             y = dataset_obj.Y[target]
-            agg_abc = simul_agreg_regression.cv_aggregated_protocol_ABC(
+            agg_abc = comparison_models_regression.cv_aggregated_protocol_ABC(
                 X_B=X_C,
                 X_C=X_C,
                 y=y,
@@ -388,7 +389,7 @@ if LOAD_RAW_FEATURES_VF:
             for target in targets:        
                 y = dataset_obj.Y[target]
 
-                spatial_results =simul_agreg_regression.cv_spatial_knn_protocol_ABC(
+                spatial_results =comparison_models_regression.cv_spatial_knn_protocol_ABC(
                     X_B=X_C,
                     X_C=X_C,
                     coords=coords,
@@ -430,7 +431,7 @@ if LOAD_RAW_FEATURES_VF:
             #
             modelC_factory = lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
             #
-            true_sums_C, pred_sums_C = visu.cv_collect_group_sums_modelC(
+            true_sums_C, pred_sums_C = comparison_models_regression.cv_collect_group_sums_modelC(
             X_C=X_C,
             coords=coords,
             y=y,
@@ -455,20 +456,16 @@ if LOAD_RAW_FEATURES_VF:
         creer_une_classe_specifique_pour_zero_vf=True
         y=dataset_obj.Y[target]
         #
-        service =calcul_classes.TargetBinningService()
+        service =calcul_classes_services.TargetBinningService()
 
         art = service.build_classes(y,
-            spec=calcul_classes.BinningSpec(method=methode, n_classes=n_classes, zero_as_own_class=creer_une_classe_specifique_pour_zero_vf),
+            spec=calcul_classes_services.BinningSpec(method=methode, n_classes=n_classes, zero_as_own_class=creer_une_classe_specifique_pour_zero_vf),
         )
 
         y_class = art.y_class
         bin_log = art.log
         #
-        t_edges=methode+'_'+'edges'
-        #edges=bin_log.get(t_edges)
-        edges=bin_log[t_edges]
-        print(bin_log)
-        print(t_edges)
+        edges=bin_log['edges']
         print(edges)
         #sys.exit()
 
@@ -503,6 +500,109 @@ if LOAD_RAW_FEATURES_VF:
         print(class_col_name)
         #
         dataset_obj.X[class_col_name]=y_class
+
+
+        #COMPARAISON des MODELES:
+        regressor =modeles_services_regression.ModelCPoissonLGBM()
+
+        binning_service =calcul_classes_services.TargetBinningService()
+        binning_spec = calcul_classes_services.BinningSpec(
+            method=methode,
+            n_classes=n_classes,
+            zero_as_own_class=False,
+        )
+
+        y_float = dataset_obj.Y["contenant enterré"]  
+       
+
+        # tmp = binning_service.build_classes(y=y_float, spec=binning_spec)
+        # print(tmp.log.keys())
+        # print("thresholds_finite:", tmp.log.get("thresholds_finite"))
+        # print("edges_with_inf:", tmp.log.get("edges_with_inf"))
+
+        # print("methode:", methode)
+        # tmp = binning_service.build_classes(y=y_float, spec=binning_spec)
+        # print({k: type(v) for k, v in tmp.log.items()})
+
+      
+       
+        models = [
+            
+            classif_baselines.BaselineMajorityClass(),
+            classif_baselines.BaselineStratifiedRandom(random_state=42),
+            RegressionToClassBaseline(
+                regressor=regressor,
+                binning_service=binning_service,
+                binning_spec=binning_spec,
+                y_continuous=y_float,
+            ),
+        ]
+
+    
+
+        X_all_features = dataset_obj.X.copy()
+
+        keep_cols = []
+
+        # C1: building-scale features
+        keep_cols += [
+            "surf_batiment_source_m2",
+            "hauteur_corrigee_m",
+            "volume_batiment",
+            "log1p_surf_batiment_source_m2",
+            "log1p_volume_batiment",
+        ]
+        X_B = X_all_features[keep_cols].copy()
+
+        # C2: buffer scale features
+        keep_cols += [
+            "surf_buffer_m2_b10_m",
+            "surf_buffer_m2_b50_m",
+            "log1p_surf_buffer_m2_b10_m",
+            "log1p_surf_buffer_m2_b50_m",
+        ]
+
+        # C3: composition ratios
+        ratio_cols = [c for c in X_all_features.columns if c.startswith("ratio_")]
+        keep_cols += ratio_cols
+
+        # Final X for model C
+        X_C = X_all_features[keep_cols].copy()
+
+        # Sanity checks (minimal)
+        assert X_C.isna().sum().sum() == 0, "NaNs found in X_C"
+        assert np.isfinite(X_C.to_numpy()).all(), "Non-finite values found in X_C"
+
+        print("X_C shape:", X_C.shape)
+        print("Number of ratio cols:", len(ratio_cols))
+
+
+        y_cls=X_all_features[class_col_name]
+   
+
+        #TEST X_B
+        TEST_CLASSIF_X_B_FV=False
+        if TEST_CLASSIF_X_B_FV:
+            classModelComparisonService=comparison_models_classif.ClassModelComparisonService()
+            res_XB = classModelComparisonService.compare(
+            X=X_B,
+            y_class=y_cls,
+            models=models,
+            )
+            print('|nX_B:')
+            print(res_XB.summary)
+
+        #TEST X_C
+        TEST_CLASSIF_X_C_FV=True
+        if TEST_CLASSIF_X_C_FV:
+            classModelComparisonService=comparison_models_classif.ClassModelComparisonService()
+            res_XC = classModelComparisonService.compare(
+            X=X_C,
+            y_class=y_cls,
+            models=models,
+            )
+            print('\nX_C:')
+            print(res_XC.summary)
 
        
 
