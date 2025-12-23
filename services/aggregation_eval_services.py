@@ -1,7 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict,List
 import numpy as np
+import pandas as pd
 
 
 @dataclass(frozen=True)
@@ -42,8 +43,12 @@ def draw_aggregated_errors(
         s_true = float(y_true[idx].sum())
         s_pred = float(y_pred[idx].sum())
         denom = s_true + eps
-        rse[i] = abs(s_pred - s_true) / denom
-        bias[i] = (s_pred - s_true) / denom
+        if s_true!=s_pred:
+            rse[i] = abs(s_pred - s_true) / denom
+            bias[i] = (s_pred - s_true) / denom
+        else:
+             rse[i]=0
+             bias[i]=0
 
     return AggregationDraws(rse=rse, bias=bias)
 
@@ -61,3 +66,26 @@ def summarize_aggregation_draws(draws: AggregationDraws) -> Dict[str, float]:
         "p90_abs_bias": float(np.quantile(np.abs(bias), 0.90)),
         "p95_abs_bias": float(np.quantile(np.abs(bias), 0.95)),
     }
+
+def evaluate_aggregation_for_fold(
+    y_true_fold: np.ndarray,
+    y_pred_fold: np.ndarray,
+    pks: List[int],
+    p_n_draws: int,
+    seed_base: int,
+) -> pd.DataFrame:
+    """
+    Evaluate aggregation error for one fold across multiple group sizes (pks).
+    Returns a tidy DataFrame with one row per group_size.
+    """
+    rows = []
+    for k in pks:
+        stats = summarize_aggregation_draws(draw_aggregated_errors(
+            y_true=y_true_fold,
+            y_pred=y_pred_fold,
+            group_size=k,
+            n_draws=p_n_draws,
+            seed=seed_base + 100 * int(k),
+        ))
+        rows.append({"group_size": k, **stats})
+    return pd.DataFrame(rows)

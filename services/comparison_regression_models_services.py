@@ -6,7 +6,6 @@ from services import modeles_services_regression
 from services import metrics_services_regression
 from services import spatial_grouping_services
 from services import aggregation_eval_services
-from services import aggregation_regression_eval_services
 
 
 def cross_validate_baselines(
