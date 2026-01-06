@@ -30,11 +30,12 @@ def draw_aggregated_errors(
     if y_true.shape != y_pred.shape:
         raise ValueError("y_true and y_pred must have the same shape.")
     n = y_true.shape[0]
+
     if group_size <= 0 or group_size > n:
         raise ValueError(f"group_size must be in [1, {n}]. Got {group_size}.")
 
     rng = np.random.default_rng(seed)
-
+    #
     rse = np.empty(n_draws, dtype=float)
     bias = np.empty(n_draws, dtype=float)
 

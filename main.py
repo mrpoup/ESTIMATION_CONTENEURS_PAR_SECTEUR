@@ -6,10 +6,12 @@ from services import modeles_services_regression
 from services import comparison_regression_models_services
 from services import visu
 from services.classification_models import classif_baselines
+from services.classification_models import classif_models
 from services.classification_models.adapters import RegressionToClassBaseline
 from services import calcul_classes_services
 from services import comparison_classification_models_services
 from services import test_models
+from services import cloud_visu
 
 from matplotlib import pyplot as plt
 import numpy as np
@@ -27,10 +29,10 @@ nom_table_enquetes_agregees="enquetes_maisons"
 schema= 'points_enquete'
 
 LOAD_anf_AGGREG_DONNEES_ENQUETE_VF=False
-LOAD_DONNEES_AGREGEES_VF=False
+LOAD_DONNEES_AGREGEES_VF=True
 LOAD_DONNEES_BATIMENTS_VF=False
 #Les données maisons->bâtiments->cosia sont calculées
-LOAD_RAW_FEATURES_VF=True
+LOAD_RAW_FEATURES_VF=False
 
 
 
@@ -47,8 +49,7 @@ if LOAD_DONNEES_AGREGEES_VF:
     #
     print(f'\nTABLE {nom_table_enquetes_agregees} LOADED')
     print(f'->{len(gpd_maisons)} ligne(s) \n')
-    print(gpd_maisons.head(1))
-
+    print(gpd_maisons.head(3))
 
 if LOAD_DONNEES_BATIMENTS_VF:
     table='donnees_batiments'
@@ -332,22 +333,23 @@ if LOAD_RAW_FEATURES_VF:
         #
         #_______________________________________
 
-        TEST_TOUT_VF=True
+        TEST_TOUT_VF=False
         #_____________________
         if TEST_TOUT_VF==False:
             TEST_BASES_LINES_VF=False
-            TEST_AGGREG_ABC_SANS_KNN_VF=False
+            
             #
             TEST_AGGREG_ABC_KNN_VF=False
             TEST_AGGREG_ABC_KNN_VISU_VF=False
             #
             TEST_VISU_COURBES_REGRESSION_VF=False  
             #
-            TEST_APPROCHE_par_CLASSES_VF=True
+            TEST_APPROCHE_par_CLASSES_VF=False
+            TEST_APPROCHE_GROUPEE_VF=False
 
         else:
             TEST_BASES_LINES_VF=True
-            TEST_AGGREG_ABC_SANS_KNN_VF=True
+            TEST_AGGREG_ABC_KNN_UN_TYPE_VF=True
             #
             TEST_AGGREG_ABC_KNN_VF=True
             TEST_AGGREG_ABC_KNN_VISU_VF=True
@@ -355,6 +357,7 @@ if LOAD_RAW_FEATURES_VF:
             TEST_VISU_COURBES_REGRESSION_VF=True  
             #
             TEST_APPROCHE_par_CLASSES_VF=True
+            TEST_APPROCHE_GROUPEE_VF=True
 
 
         #CONTEXTE:
@@ -379,29 +382,10 @@ if LOAD_RAW_FEATURES_VF:
 
 
         if TEST_BASES_LINES_VF:
-            #targets="contenant enterré", "grand contenant", "petit contenant"
-            target = "contenant enterré"
-            #
-            test_models.set_test_A_B(target,X,Y,pks=pks)
+            for target in targets:        
+                test_models.set_test_A_B(target,X,Y,avec_agreg=False)
 
         
-       
-        if TEST_AGGREG_ABC_SANS_KNN_VF:
-            #targets="contenant enterré", "grand contenant", "petit contenant"
-            target = "contenant enterré"
-            #
-            y = dataset_obj.Y[target]
-            agg_abc = comparison_regression_models_services.cv_aggregated_protocol_ABC(
-                X_B=X_C,
-                X_C=X_C,
-                y=y,
-                baseline_B_features=baseline_B_features,
-                group_sizes=pks,
-                n_draws=p_n_draws,
-            )
-            summary = agg_abc.groupby(["model", "group_size"]).agg(["mean", "std"])
-            print(summary)
-
         
 
         if  TEST_AGGREG_ABC_KNN_VF:
@@ -416,7 +400,7 @@ if LOAD_RAW_FEATURES_VF:
                     coords=coords,
                     y=y,
                     baseline_B_features=baseline_B_features,
-                    k_values=pks,
+                    k_groups=pks,
                 )
 
                 summary_spatial = (
@@ -427,6 +411,7 @@ if LOAD_RAW_FEATURES_VF:
                
                 Test_aggreg_ABC_KNN_summaries[target]=summary_spatial
 
+            
             if TEST_AGGREG_ABC_KNN_VISU_VF:
                 print(target)
                 print(summary_spatial)
@@ -450,13 +435,13 @@ if LOAD_RAW_FEATURES_VF:
             k = 60
             max_groups_per_fold=100
             #
-            modelC_factory = lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
+            modelC_factory =lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
             #
             true_sums_C, pred_sums_C = comparison_regression_models_services.cv_collect_group_sums_modelC(
             X_C=X_C,
             coords=coords,
             y=y,
-            modelC_factory=lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42),
+            modelC_factory=modelC_factory,
             k=k,
             max_groups_per_fold=max_groups_per_fold
         )
@@ -469,46 +454,45 @@ if LOAD_RAW_FEATURES_VF:
 
     if TEST_APPROCHE_par_CLASSES_VF:
         #targets="contenant enterré", "grand contenant", "petit contenant"
-        target = "contenant enterré"
+        target = "petit contenant"
 
         #methodes="quantile", "thresholds", "balanced_integers"
         methode="balanced_integers"
         n_classes=10
         creer_une_classe_specifique_pour_zero_vf=True
+   
+        #
+        binning_service =calcul_classes_services.TargetBinningService()
+        #
         y=dataset_obj.Y[target]
+        binning_spec=calcul_classes_services.BinningSpec(method=methode, n_classes=n_classes, zero_as_own_class=creer_une_classe_specifique_pour_zero_vf)
+        
+        binning_obj = binning_service.build_classes(y,spec=binning_spec,)
+        #=>
+        y_class = binning_obj.y_class
+        bin_log = binning_obj.log
         #
-        service =calcul_classes_services.TargetBinningService()
-
-        art = service.build_classes(y,
-            spec=calcul_classes_services.BinningSpec(method=methode, n_classes=n_classes, zero_as_own_class=creer_une_classe_specifique_pour_zero_vf),
-        )
-
-        y_class = art.y_class
-        bin_log = art.log
-        #
-        edges=bin_log['edges']
-        print(edges)
-        #sys.exit()
-
-        nb_lignes=sum([v for v in bin_log["class_counts"].values() ])
-
+        #->Bornes par classe:
+        bornes=bin_log['edges']
         class_bounds = [
         {
             "class_id": i,
             "lower_bound": low,
             "upper_bound": high
         }
-        for i, (low, high) in enumerate(zip(edges[:-1], edges[1:]))
+        for i, (low, high) in enumerate(zip(bornes[:-1], bornes[1:]))
         ]
         #
+        nb_obj_classes=sum([v for v in bin_log["class_counts"].values() ])
+        #
         print('\n___________________________________')
-        print(art.column_name)
+        print(binning_obj.column_name)
         print(f'nb indiv par classe:{bin_log["class_counts"]}')
        
         print(f'nb classes: {len(bin_log["class_counts"])} vs attendu: {n_classes}')
-        nb_lignes=sum([v for v in bin_log["class_counts"].values() ])
-        print(f'nb objets classés: {nb_lignes}')
-        print(f'edges: {edges}')
+        nb_obj_classes=sum([v for v in bin_log["class_counts"].values() ])
+        print(f'nb objets classés: {nb_obj_classes}')
+        print(f'bornes: {bornes}')
         print(f'\nlimites de classes:')
        
         for b in class_bounds:
@@ -526,29 +510,9 @@ if LOAD_RAW_FEATURES_VF:
         #COMPARAISON des MODELES:
         regressor =modeles_services_regression.ModelCPoissonLGBM()
 
-        binning_service =calcul_classes_services.TargetBinningService()
-        binning_spec = calcul_classes_services.BinningSpec(
-            method=methode,
-            n_classes=n_classes,
-            zero_as_own_class=False,
-        )
+        y_float = dataset_obj.Y[target]  
 
-        y_float = dataset_obj.Y["contenant enterré"]  
-       
-
-        # tmp = binning_service.build_classes(y=y_float, spec=binning_spec)
-        # print(tmp.log.keys())
-        # print("thresholds_finite:", tmp.log.get("thresholds_finite"))
-        # print("edges_with_inf:", tmp.log.get("edges_with_inf"))
-
-        # print("methode:", methode)
-        # tmp = binning_service.build_classes(y=y_float, spec=binning_spec)
-        # print({k: type(v) for k, v in tmp.log.items()})
-
-      
-       
-        models = [
-            
+        models = [            
             classif_baselines.BaselineMajorityClass(),
             classif_baselines.BaselineStratifiedRandom(random_state=42),
             RegressionToClassBaseline(
@@ -557,15 +521,16 @@ if LOAD_RAW_FEATURES_VF:
                 binning_spec=binning_spec,
                 y_continuous=y_float,
             ),
-        ]
+            classif_models.ModelLGBMClassifier(random_state=42),
+          classif_models.ModelLogRegMultinomial(random_state=42)
 
-    
+        ]
 
         X_all_features = dataset_obj.X.copy()
 
         keep_cols = []
 
-        # C1: building-scale features
+        # Test B columns
         keep_cols += [
             "surf_batiment_source_m2",
             "hauteur_corrigee_m",
@@ -610,7 +575,7 @@ if LOAD_RAW_FEATURES_VF:
             y_class=y_cls,
             models=models,
             )
-            print('|nX_B:')
+            print(f'\n{target} X_B:')
             print(res_XB.summary)
 
         #TEST X_C
@@ -622,8 +587,31 @@ if LOAD_RAW_FEATURES_VF:
             y_class=y_cls,
             models=models,
             )
-            print('\nX_C:')
+            print(f'\n{target} X_C:')
             print(res_XC.summary)
+
+    if TEST_APPROCHE_GROUPEE_VF==True:
+        #print(gpd_filtered_features.columns)
+        #'contenant enterré','grand contenant', 'petit contenant'
+        use_log1p_vf=False
+        limites={}
+        limites['grand']=(0,50)
+        limites['petit']=(0,50)
+        limites['enterré']=(0,50)
+
+
+        cloud_visu.plot_container_scatters(gpd_filtered_features, use_log1p_vf=use_log1p_vf,limites=limites)
+       
+        conditionnal_histo_vf=False
+        if conditionnal_histo_vf:
+            targets='contenant enterré','grand contenant', 'petit contenant'
+            for target_col in targets:
+                for condition_col in targets:
+                    if condition_col==target_col:
+                        continue
+                    cloud_visu.plot_conditional_histograms(gpd_filtered_features,target_col=target_col,condition_col=condition_col)
+
+        print(cloud_visu.compute_spearman_correlations(gpd_filtered_features))
 
        
 

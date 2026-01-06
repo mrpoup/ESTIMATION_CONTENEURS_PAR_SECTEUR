@@ -28,9 +28,9 @@ def spatial_knn_rse(
 
     for i in range(n):
         idx = indices[i]
-        S = y_true[idx].sum()
-        Shat = y_pred[idx].sum()
-        rse[i] = abs(Shat - S) / (S + eps)
+        true_sum = y_true[idx].sum()
+        pred_sum = y_pred[idx].sum()
+        rse[i] = abs(pred_sum - true_sum) / (true_sum + eps)
 
     return rse
 

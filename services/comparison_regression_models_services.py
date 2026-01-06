@@ -179,7 +179,7 @@ def cv_spatial_knn_protocol_ABC(
     coords,
     y,
     baseline_B_features,
-    k_values=(30, 60, 120),
+    k_groups=(30, 60, 120),
     n_splits=5,
     random_state=42,
     lgbm_params=None,
@@ -187,12 +187,14 @@ def cv_spatial_knn_protocol_ABC(
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     records = []
 
+    #Pour chaque fold...
     for fold, (train_idx, test_idx) in enumerate(kf.split(X_C), start=1):
         Xb_train, Xb_test = X_B.iloc[train_idx], X_B.iloc[test_idx]
         Xc_train, Xc_test = X_C.iloc[train_idx], X_C.iloc[test_idx]
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
         coords_test = coords[test_idx]
 
+        #Calcul des prédictions pour chaque modèle
         # A — mean
         A = modeles_services_regression.BaselineMeanPredictor().fit(y_train)
         y_pred_A = A.predict(len(y_test))
@@ -207,12 +209,15 @@ def cv_spatial_knn_protocol_ABC(
         C.fit(Xc_train, y_train)
         y_pred_C = np.asarray(C.predict(Xc_test))
 
+        #
         y_test_np = y_test.to_numpy()
 
-        for k in k_values:
+        #Pour chaque taille de groupe...
+        for k in k_groups:
             if k >= len(y_test_np):
                 continue
-
+            
+            #Calcul de la RSE. Est-ce la bonne métrique???
             rse_A = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_A, k)
             rse_B = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_B, k)
             rse_C = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_C, k)
