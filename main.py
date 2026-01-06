@@ -29,10 +29,10 @@ nom_table_enquetes_agregees="enquetes_maisons"
 schema= 'points_enquete'
 
 LOAD_anf_AGGREG_DONNEES_ENQUETE_VF=False
-LOAD_DONNEES_AGREGEES_VF=True
+LOAD_DONNEES_AGREGEES_VF=False
 LOAD_DONNEES_BATIMENTS_VF=False
 #Les données maisons->bâtiments->cosia sont calculées
-LOAD_RAW_FEATURES_VF=False
+LOAD_RAW_FEATURES_VF=True
 
 
 
@@ -49,7 +49,141 @@ if LOAD_DONNEES_AGREGEES_VF:
     #
     print(f'\nTABLE {nom_table_enquetes_agregees} LOADED')
     print(f'->{len(gpd_maisons)} ligne(s) \n')
-    print(gpd_maisons.head(3))
+    print(gpd_maisons.head(1))
+    #type_enquete  visite_VF
+    print('\n')
+    print(gpd_maisons['visite_VF'].value_counts())
+    print('\n')
+    print(gpd_maisons['type_enquete'].value_counts())
+    #date_visite code_agent cluster_200m
+    print('\n nb clusters')
+    #print(gpd_maisons[['date_visite','code_agent','cluster_200m']].value_counts())
+  
+
+    freq_triplets = (
+    gpd_maisons
+    .value_counts(["date_visite", "code_agent", "cluster_200m"])
+    .reset_index(name="count")
+    )
+    freq_distribution = (
+        freq_triplets["count"]
+        .value_counts()
+        .sort_index()
+        .reset_index(name="nb_triplets")
+        .rename(columns={"index": "nb_lignes_par_triplet"})
+    )
+    #print(freq_distribution)
+
+   
+    maxi=15
+    counts_left = freq_triplets.loc[
+        freq_triplets["count"] <= maxi, "count"
+    ]
+    title_s=f"Fréquence du nombre d'habitat étudié par plainte (count ≤ {maxi})" 
+    bins = np.arange(1, maxi+2)  # 1 à 21 → couvre 1..20
+
+    plt.figure()
+    plt.hist(counts_left, bins=bins, align="left")
+    plt.xlabel("Nombre de lignes par triplet")
+    plt.ylabel("Nombre de triplets")
+    plt.title(title_s)
+    plt.grid(axis="y")
+    plt.show()
+
+    #type_enquete
+    # plainte           5187
+    # porte_a_porte     2852
+    # enquete_entomo     456
+
+    freq_triplets = (
+    gpd_maisons
+    .value_counts(["date_visite", "code_agent", "cluster_200m","type_enquete"])
+    .reset_index(name="count")
+    )
+    freq_distribution = (
+        freq_triplets["count"]
+        .value_counts()
+        .sort_index()
+        .reset_index(name="nb_triplets")
+        .rename(columns={"index": "nb_lignes_par_triplet"})
+    )
+
+    df_left = freq_triplets[freq_triplets["count"] <= maxi]
+    for type_enquete, sub in df_left.groupby("type_enquete"):
+        plt.hist(
+            sub["count"],
+            bins=bins,
+            align="left",
+            alpha=0.5,
+            label=type_enquete
+        )
+
+    plt.xlabel("Nombre de lignes par triplet")
+    plt.ylabel("Nombre de triplets")
+    plt.title(title_s)
+    plt.legend()
+    plt.grid(axis="y")
+    plt.show()
+
+    for type_enquete, sub in df_left.groupby("type_enquete"):
+        plt.hist(
+            sub["count"],
+            bins=bins,
+            align="left",
+            alpha=0.5,
+            density=True,
+            label=type_enquete
+        )
+
+    plt.xlabel("Nombre de lignes par triplet")
+    plt.ylabel("Fréquence relative")
+    plt.title(title_s)
+    plt.legend()
+    plt.grid(axis="y")
+    plt.show()
+
+
+    df_left = freq_triplets[freq_triplets["count"] <= maxi]
+
+    freq_by_type = (
+        df_left
+        .groupby(["count", "type_enquete"])
+        .size()
+        .unstack(fill_value=0)
+        .sort_index()
+    )
+    x = freq_by_type.index.values
+    types = freq_by_type.columns
+    n_types = len(types)
+
+    width = 0.25  # largeur des barres
+    offsets = np.linspace(
+        -width * (n_types - 1) / 2,
+        width * (n_types - 1) / 2,
+        n_types
+    )
+
+   
+    freq_rel = freq_by_type.div(freq_by_type.sum(axis=0), axis=1)
+
+    plt.figure()
+
+    types2=[ 'plainte', 'porte_a_porte','enquete_entomo']
+    for i, type_enquete in enumerate(types2):
+        plt.bar(
+            x + offsets[i],
+            freq_rel[type_enquete],
+            width=width,
+            label=type_enquete
+        )
+
+    plt.xlabel("Nombre de lignes par triplet")
+    plt.ylabel("Fréquence relative")
+    plt.title(title_s)
+    plt.xticks(x)
+    plt.legend()
+    plt.grid(axis="y")
+    plt.show()
 
 if LOAD_DONNEES_BATIMENTS_VF:
     table='donnees_batiments'

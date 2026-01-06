@@ -12,7 +12,6 @@ def enquetes_to_agreg_sites(TEST_MULTI_VF=False,AGREGATION_VF=True,distance_max_
     pd.set_option('display.max_columns', None)
     pd.set_option('display.max_rows', None)
 
-
     REMONTE_et_AGREGE_DONNEES_ENQUETE_VF=True
     REMONTE_DONNEES_AGREGEES_VF=False
 
