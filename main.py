@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 from data_access.data_access_services import Data_access_services
 from services import fichier_enquetes_to_agreg_sites_services as agreg_services
 from services import prepa_data_services
@@ -16,6 +17,7 @@ from services import cloud_visu
 from matplotlib import pyplot as plt
 import numpy as np
 import math
+import re
 import sys
 
 
@@ -231,13 +233,15 @@ if LOAD_RAW_FEATURES_VF:
     print(gpd_filtered_features['type_enquete'].unique())
     
    
-
-
     print(gpd_filtered_features[['contenant enterré','grand contenant', 'petit contenant']].describe())
 
     print(gpd_filtered_features.columns)
+    
 
+    print("nb points par agent:")
+    print(gpd_filtered_features['code_agent'].value_counts())
 
+    
     def plot_boxplots_features(
         df,
         features,
@@ -294,13 +298,14 @@ if LOAD_RAW_FEATURES_VF:
         plt.show()
 
 
-
         # Liste des colonnes à afficher
     features = [
         'contenant enterré',
         'grand contenant',
         'petit contenant'
     ]
+
+
 
     visu_boxplots_vf=False
     visu_freq_p95_vf=False
@@ -408,11 +413,16 @@ if LOAD_RAW_FEATURES_VF:
             target_cols_to_keep=["contenant enterré", "grand contenant", "petit contenant"],
         )
 
+        #__________________________________________
+        targets="contenant enterré", "grand contenant", "petit contenant"
+        #__________________________________________
+
         X, Y, ids = dataset_obj.X, dataset_obj.Y, dataset_obj.ids
 
-        print(f'->colonnes x:\n {X.columns}')
-        #sys.exit()
+        # print(f'->colonnes x:\n {X.columns}')
+        
         # print(f'->colonnes y:\n {Y.columns}')
+        # sys.exit()
 
 
         #On peut enlever les surfaces brutes:
@@ -461,140 +471,499 @@ if LOAD_RAW_FEATURES_VF:
         print("Number of ratio cols:", len(ratio_cols))
 
 
+        VISU_CORREL_VF=False
+        if VISU_CORREL_VF:
+            
+            features_col=dataset_obj.feature_names
+            # print(features_col)
+            # sys.exit()
+
+
+            features_utiles=['surf_batiment_source_m2',
+        'ratio_surf_batiment_b10_m', 'ratio_surf_broussaille_b10_m', 'ratio_surf_conifere_b10_m',
+        'ratio_surf_feuillu_b10_m', 'ratio_surf_pelouse_b10_m', 'ratio_surf_piscine_b10_m',
+        'ratio_surf_serre_b10_m', 'ratio_surf_sol_nu_b10_m', 'ratio_surf_surface_eau_b10_m',
+        'ratio_surf_zone_impermeable_b10_m', 'ratio_surf_zone_permeable_b10_m','ratio_veg_b10_m', 'ratio_veg_b50_m']
+            
+
+            features_utiles= [
+            "surf_batiment_source_m2",
+            "hauteur_corrigee_m",
+            "volume_batiment",
+            "log1p_surf_batiment_source_m2",
+            "log1p_volume_batiment",
+            'ratio_veg_b10_m', 'ratio_veg_b50_m'
+        ]
+
+
+            
+
+            dataset_target_names=dataset_obj.target_names
+            print(dataset_target_names)
+            #['contenant enterré', 'grand contenant', 'petit contenant']
+
+            visu_scatters_vf=False
+            if visu_scatters_vf:
+                dataset_obj.plot_feature_target_scatter_matrix(target_col="contenant enterré", features_cols=features_utiles)
+
+                dataset_obj.plot_feature_target_scatter_matrix(target_col="grand contenant", features_cols=features_utiles)
+
+                dataset_obj.plot_feature_target_scatter_matrix(target_col="petit contenant", features_cols=features_utiles)
+                plt.show()
+
+            visu_spearman_correl_vf=True
+            if visu_spearman_correl_vf:
+                plot_vf=False
+                features_utiles=None
+
+                for target in targets:
+                    
+                    sp=dataset_obj.spearman_correlations(target_col=target, features_cols=features_utiles,plot=plot_vf)
+                    print((f'\nSpearman correlation {target}:'))
+                    print(sp)
+              
+
+                
+
+
+            
+
+            
+
+           
+
+        CLUSTERISATION_BATI_VF=False
+        if CLUSTERISATION_BATI_VF:
+            #print(dataset_obj.feature_names)
+            col_utiles=['surf_batiment_source_m2', 'surf_buffer_m2_b10_m',
+                             'hauteur_corrigee_m', 'volume_batiment',
+                             'ratio_surf_batiment_b10_m', 'ratio_surf_broussaille_b10_m', 'ratio_surf_conifere_b10_m', 'ratio_surf_feuillu_b10_m',  'ratio_surf_surface_eau_b10_m', 'ratio_surf_zone_impermeable_b10_m', 'ratio_surf_zone_permeable_b10_m',
+                             'ratio_surf_batiment_b50_m', 'ratio_surf_broussaille_b50_m', 'ratio_surf_conifere_b50_m', 'ratio_surf_feuillu_b50_m',  'ratio_surf_surface_eau_b50_m', 'ratio_surf_zone_impermeable_b50_m', 'ratio_surf_zone_permeable_b50_m',
+                            ]
+            data_x=dataset_obj.X[col_utiles]
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.preprocessing import RobustScaler
+
+            X_scaled = StandardScaler().fit_transform(data_x)
+            #X_scaled = RobustScaler().fit_transform(data_x)
+
+            print(type(X_scaled))
+            df_scaled=pd.DataFrame(X_scaled,columns=data_x.columns)
+            corr = df_scaled.corr(method="pearson")
+            print(corr)
+
+
+            from sklearn.decomposition import PCA
+
+            pca = PCA()
+            X_pca = pca.fit_transform(df_scaled)
+            explained_variance = pca.explained_variance_ratio_
+            print("Variance expliquée:")
+            print(explained_variance)
+            #
+            plt.plot(range(1, len(explained_variance) + 1), explained_variance, marker="o")
+            plt.xlabel("Composante")
+            plt.ylabel("Variance expliquée")
+            plt.title("Scree plot ACP")
+            plt.show()
+
+           
+
+            def visu_acp( composante_1=0, composante_2=1):
+                plt.figure(figsize=(6, 6))
+                plt.scatter(X_pca[:, composante_1], X_pca[:, composante_2], s=5, alpha=0.4)
+                plt.axhline(0, linewidth=0.5)
+                plt.axvline(0, linewidth=0.5)
+                plt.xlabel("PC1")
+                plt.ylabel("PC2")
+                plt.title(f"ACP – projection des individus (PC{composante_1+1}–PC{composante_2+1})")
+                plt.show()
+
+                plt.hexbin(X_pca[:, composante_1], X_pca[:, composante_2], gridsize=40)
+                plt.xlabel(f"PC{composante_1+1}")
+                plt.ylabel(f"PC{composante_2+1}")
+                plt.title(f"ACP – densité des individus (PC{composante_1+1}–PC{composante_2+1})")
+                plt.colorbar(label="Densité")
+                plt.show()
+
+                plt.scatter(X_pca[:, composante_2], X_pca[:, composante_1], s=5, cmap="viridis")
+                plt.colorbar(label=f"PC{composante_1+1}")
+                plt.show()
+
+            visu_acp( composante_1=0, composante_2=1)
+            visu_acp( composante_1=1, composante_2=2)
+
+
+
         #_______________________________________
         #
         #MODELES 
         #
         #_______________________________________
 
-        TEST_TOUT_VF=False
-        #_____________________
-        if TEST_TOUT_VF==False:
-            TEST_BASES_LINES_VF=False
-            
-            #
-            TEST_AGGREG_ABC_KNN_VF=False
-            TEST_AGGREG_ABC_KNN_VISU_VF=False
-            #
-            TEST_VISU_COURBES_REGRESSION_VF=False  
-            #
-            TEST_APPROCHE_par_CLASSES_VF=False
-            TEST_APPROCHE_GROUPEE_VF=False
+    TEST_TOUT_VF=False
+    #_____________________
+    if TEST_TOUT_VF==False:
+        TEST_BASES_LINES_VF=True
+        #
+        TEST_AGGREG_ABC_KNN_VF=False
+        TEST_AGGREG_ABC_KNN_VISU_VF=False
+        #
+        TEST_VISU_COURBES_REGRESSION_VF=False
+        #
+        TEST_VISU_par_GROUPE_v2_vf=True
+        #
+        TEST_APPROCHE_par_CLASSES_VF=False
+        TEST_APPROCHE_GROUPEE_VF=False
 
-        else:
-            TEST_BASES_LINES_VF=True
-            TEST_AGGREG_ABC_KNN_UN_TYPE_VF=True
-            #
+    else:
+        TEST_BASES_LINES_VF=True
+        TEST_AGGREG_ABC_KNN_UN_TYPE_VF=True
+        #
+        TEST_AGGREG_ABC_KNN_VF=True
+        TEST_AGGREG_ABC_KNN_VISU_VF=True
+        #
+        TEST_VISU_COURBES_REGRESSION_VF=True 
+        #
+        TEST_VISU_par_GROUPE_v2_vf=True 
+        #
+        TEST_APPROCHE_par_CLASSES_VF=True
+        TEST_APPROCHE_GROUPEE_VF=True
+
+
+    #CONTEXTE:
+    if TEST_VISU_COURBES_REGRESSION_VF or TEST_AGGREG_ABC_KNN_VISU_VF:
             TEST_AGGREG_ABC_KNN_VF=True
-            TEST_AGGREG_ABC_KNN_VISU_VF=True
-            #
-            TEST_VISU_COURBES_REGRESSION_VF=True  
-            #
-            TEST_APPROCHE_par_CLASSES_VF=True
-            TEST_APPROCHE_GROUPEE_VF=True
 
+    features_utiles=dataset_obj.feature_names
+    # features_utiles=['surf_batiment_source_m2',
+    #     'ratio_surf_batiment_b10_m', 'ratio_surf_broussaille_b10_m', 'ratio_surf_conifere_b10_m',
+    #     'ratio_surf_feuillu_b10_m', 'ratio_surf_pelouse_b10_m', 'ratio_surf_piscine_b10_m',
+    #     'ratio_surf_serre_b10_m', 'ratio_surf_sol_nu_b10_m', 'ratio_surf_surface_eau_b10_m',
+    #     'ratio_surf_zone_impermeable_b10_m', 'ratio_surf_zone_permeable_b10_m','ratio_veg_b10_m', 'ratio_veg_b50_m']
+            
+    
 
-        #CONTEXTE:
-        if TEST_VISU_COURBES_REGRESSION_VF or TEST_AGGREG_ABC_KNN_VISU_VF:
-                TEST_AGGREG_ABC_KNN_VF=True
+    NEW_MODELS_VF=False
+    PREDICTION_MONO_VF=True
 
+    lgbm_params = {
+                    "objective": "poisson",
+                    "metric": "poisson",
+                    "learning_rate": 0.05,
+                    "num_leaves": 31,
+                    "min_data_in_leaf": 50,
+                    "feature_fraction": 0.8,
+                    "verbosity": -1,
+                    "seed": 42
+                }
+    
+    if NEW_MODELS_VF:
+        if PREDICTION_MONO_VF:
 
-        #__________________________________________
-        targets="contenant enterré", "grand contenant", "petit contenant"
-        #__________________________________________
-        
-        baseline_B_features = [
-            "log1p_surf_batiment_source_m2",
-            "hauteur_corrigee_m",
-            "log1p_volume_batiment",
-            'log1p_surf_buffer_m2_b10_m', 'log1p_surf_buffer_m2_b50_m'
-        ]
+            import numpy as np
+            import pandas as pd
 
-        pks=(30, 60, 120,180,240,300)
-        p_n_draws=1000
-        coords = gpd_filtered_features.loc[X_C.index, ["x_visite", "y_visite"]].to_numpy()
+            from sklearn.model_selection import train_test_split
+            from sklearn.metrics import mean_absolute_error, mean_squared_error, mean_poisson_deviance,root_mean_squared_error
 
+            import lightgbm as lgb
+            import statsmodels.api as sm
 
-        if TEST_BASES_LINES_VF:
-            for target in targets:        
-                test_models.set_test_A_B(target,X,Y,avec_agreg=False)
-
-        
-        
-
-        if  TEST_AGGREG_ABC_KNN_VF:
-            Test_aggreg_ABC_KNN_summaries={}
-
-            for target in targets:        
+            def compare_count_models(
+                dataset_obj,
+                features,
+                target,
+                test_size=0.2,
+                random_state=42
+            ):
+                # -------------------------
+                # Train / test split
+                # -------------------------
+                X = dataset_obj.X[features]
                 y = dataset_obj.Y[target]
 
-                spatial_results =comparison_regression_models_services.cv_spatial_knn_protocol_ABC(
-                    X_B=X_C,
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=test_size, random_state=random_state
+                )
+
+                results = []
+
+                # =====================================================
+                # 1) Mean baseline
+                # =====================================================
+                mean_pred = np.full_like(y_test, y_train.mean(), dtype=float)
+                mean_pred = np.clip(mean_pred, 1e-6, None)
+
+                results.append({
+                    "model": "Mean_baseline",
+                    "MAE": mean_absolute_error(y_test, mean_pred),
+                    "RMSE": root_mean_squared_error(y_test, mean_pred),
+                    "Poisson_deviance": mean_poisson_deviance(y_test, mean_pred)
+                })
+
+                # =====================================================
+                # 2) Negative Binomial regression
+                # =====================================================
+                X_train_sm = sm.add_constant(X_train, has_constant="add")
+                X_test_sm = sm.add_constant(X_test, has_constant="add")
+
+                nb_model = sm.GLM(
+                    y_train,
+                    X_train_sm,
+                    family=sm.families.NegativeBinomial()
+                ).fit()
+
+                nb_pred = nb_model.predict(X_test_sm)
+                nb_pred = np.clip(nb_pred, 1e-6, None)
+
+                results.append({
+                    "model": "Negative_Binomial",
+                    "MAE": mean_absolute_error(y_test, nb_pred),
+                    "RMSE": root_mean_squared_error(y_test, nb_pred),
+                    "Poisson_deviance": mean_poisson_deviance(y_test, nb_pred)
+                })
+
+                # =====================================================
+                # 3) LightGBM Poisson
+                # =====================================================
+                lgb_train = lgb.Dataset(X_train, label=y_train)
+                lgb_test = lgb.Dataset(X_test, label=y_test, reference=lgb_train)
+
+               
+
+                gbm = lgb.train(
+                    lgbm_params,
+                    lgb_train,
+                    num_boost_round=500,
+                    valid_sets=[lgb_test],
+                    callbacks=[lgb.early_stopping(50, verbose=False)]
+                )
+
+                lgb_pred = gbm.predict(X_test)
+                lgb_pred = np.clip(lgb_pred, 1e-6, None)
+
+                results.append({
+                    "model": "LightGBM_Poisson",
+                    "MAE": mean_absolute_error(y_test, lgb_pred),
+                    "RMSE": root_mean_squared_error(y_test, lgb_pred),
+                    "Poisson_deviance": mean_poisson_deviance(y_test, lgb_pred)
+                })
+
+                df = pd.DataFrame(results)
+
+                # -------------------------
+                # Normalisation vs baseline
+                # -------------------------
+                baseline = df.loc[df["model"] == "Mean_baseline"].iloc[0]
+
+                for metric in ["MAE", "RMSE", "Poisson_deviance"]:
+                    df[f"{metric}_rel_impr"] = (baseline[metric] - df[metric]) / baseline[metric]
+                    df[f"{metric}_rel_impr_pct"] = 100 * df[f"{metric}_rel_impr"]
+
+                # tri selon la métrique principale
+                return df.sort_values("Poisson_deviance")
+
+        
+            print("CALCUL MONO:")
+            for target in targets:
+                print(f'TARGET {target}:')    
+                results=compare_count_models(dataset_obj, features=features_utiles, target=target)
+                print(results)
+                rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique'
+                file_out=os.path.join(rep_out,f'model_mono_{target.replace(' ','_')}.csv')
+                print(file_out)
+                results.to_csv(file_out)
+
+           
+
+  
+
+
+
+    baseline_B_features = [
+        "log1p_surf_batiment_source_m2",
+        "hauteur_corrigee_m",
+        "log1p_volume_batiment",
+        'log1p_surf_buffer_m2_b10_m', 'log1p_surf_buffer_m2_b50_m'
+    ]
+
+
+
+    pks=( 10, 20, 40, 60, 90)
+    groups_regression = 40
+    
+
+
+    p_n_draws=1000
+    coords = gpd_filtered_features.loc[X_C.index, ["x_visite", "y_visite"]].to_numpy()
+
+    lim_graphes_correl={}
+    lim_graphes_correl["contenant enterré"]=(0,140)
+    lim_graphes_correl["grand contenant"]=(0,150)
+    lim_graphes_correl["petit contenant"]=(0,450)
+
+
+    if TEST_BASES_LINES_VF:
+        for target in targets:        
+            test_models.set_test_A_B(target,X,Y,avec_agreg=False)
+
+    
+    def export_tables_to_excel(tables: dict[str, pd.DataFrame], filepath: str) -> None:
+        """
+        Export multiple tables to a single Excel file (one sheet per key).
+        Handles MultiIndex columns by flattening them automatically.
+        """
+        with pd.ExcelWriter(filepath, engine="openpyxl") as writer:
+            for sheet_name, df in tables.items():
+                safe_name = str(sheet_name)[:31]  # Excel sheet name max length
+                df_out = flatten_multiindex_columns(df)
+                df_out.to_excel(writer, sheet_name=safe_name, index=False)
+    
+
+    def flatten_multiindex_columns(df: pd.DataFrame, sep: str = "__") -> pd.DataFrame:
+        """
+        Flatten MultiIndex columns into single-level columns.
+        Example: ('RSE_mean','mean') -> 'RSE_mean__mean'
+        """
+        out = df.copy()
+        if isinstance(out.columns, pd.MultiIndex):
+            out.columns = [
+                sep.join([str(x) for x in col if x is not None and str(x) != ""])
+                for col in out.columns.to_flat_index()
+            ]
+        return out
+
+    if  TEST_AGGREG_ABC_KNN_VF:
+        Test_aggreg_ABC_KNN_summaries={}
+
+        for target in targets:  
+            print(f'Target: {target}')      
+            y = dataset_obj.Y[target]
+            max_groups=None
+            spatial_results =comparison_regression_models_services.cv_spatial_knn_protocol_ABC(
+                X_B=X_C,
+                X_C=X_C,
+                coords=coords,
+                y=y,
+                baseline_B_features=baseline_B_features,
+                k_groups=pks,
+                max_groups=max_groups
+            )
+
+            summary_spatial = comparison_regression_models_services.build_readable_cv_table(
+            spatial_results,
+            target_name=target,
+            model_order=["A_mean", "B_neg_bin", "C_lgbm_poisson"],
+            group_order=pks,
+            round_digits=3
+             )
+
+            # summary_spatial = (
+            #     spatial_results
+            #     .groupby(["model", "group_size"])
+            #     .agg(["mean", "std"])
+            # )
+            
+            Test_aggreg_ABC_KNN_summaries[target]=summary_spatial
+
+            print(f'\nSummary: {target}:')
+
+            print(summary_spatial)
+            print(f'\nFin summary: {target}:')
+            
+
+            # rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique_v2'
+            # file_out=os.path.join(rep_out,f'knn_{target.replace(' ','_')}.csv')
+            # summary_spatial.to_csv(file_out)
+
+        
+            if TEST_VISU_COURBES_REGRESSION_VF:
+                #targets="contenant enterré", "grand contenant", "petit contenant"
+            
+                def scatters_results(target, k,min_max=None):
+                    max_groups_per_fold=100
+                    #
+                    modelC_factory =lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
+                    #
+                    true_sums_C, pred_sums_C = comparison_regression_models_services.cv_collect_group_sums_modelC(
                     X_C=X_C,
                     coords=coords,
                     y=y,
-                    baseline_B_features=baseline_B_features,
-                    k_groups=pks,
+                    modelC_factory=modelC_factory,
+                    k=k,
+                    max_groups_per_fold=max_groups_per_fold
                 )
 
-                summary_spatial = (
-                    spatial_results
-                    .groupby(["model", "group_size"])
-                    .agg(["mean", "std"])
-                )
-               
-                Test_aggreg_ABC_KNN_summaries[target]=summary_spatial
+                    visu.plot_true_vs_pred_sector_sums(
+                        true_sums_C, pred_sums_C,
+                        k=k,
+                        min_max=min_max,
+                        title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
+                    )
 
-            
-            if TEST_AGGREG_ABC_KNN_VISU_VF:
+                use_min_max_vf=False
+                if use_min_max_vf:
+                    min_max=lim_graphes_correl[target]
+                else:
+                    min_max=None
+                scatters_results(target=target,min_max=min_max, k=groups_regression)
+
+        rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique'
+        file_out=os.path.join(rep_out,f'cv_knn_summary.xlsx')
+
+        export_tables_to_excel(Test_aggreg_ABC_KNN_summaries, file_out)
+        print(f'knn summary exporté vers:\n {file_out}')
+
+       
+        visu_plots_vf=False
+        if TEST_AGGREG_ABC_KNN_VISU_VF:
+                print('\n')
                 print(target)
-                print(summary_spatial)
+                
+                
+                if visu_plots_vf:
+                    visu.plot_graph1_multitarget(
+                    summaries=Test_aggreg_ABC_KNN_summaries,
+                    ks=pks ,
+                    as_percent=True
+                    )
 
-                visu.plot_graph1_multitarget(
-                summaries=Test_aggreg_ABC_KNN_summaries,
-                ks=pks ,
-                as_percent=True
-                )
+                    visu.plot_graph1_ultra_decideur(
+                    summaries=Test_aggreg_ABC_KNN_summaries,          # dict: {target_name: summary_df}
+                    ks=pks,
+                    as_percent=True
+                    )
 
-                visu.plot_graph1_ultra_decideur(
-                summaries=Test_aggreg_ABC_KNN_summaries,          # dict: {target_name: summary_df}
-                ks=pks,
-                as_percent=True
-                )
+    
+    if TEST_VISU_par_GROUPE_v2_vf:
+        target="contenant enterré"
+        k_list=[20, 60, 90]
+        mode="sum" # ou "mean"
 
-        
-        if TEST_VISU_COURBES_REGRESSION_VF:
-            #targets="contenant enterré", "grand contenant", "petit contenant"
-            target = "contenant enterré"
-            k = 60
-            max_groups_per_fold=100
-            #
-            modelC_factory =lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
-            #
-            true_sums_C, pred_sums_C = comparison_regression_models_services.cv_collect_group_sums_modelC(
-            X_C=X_C,
-            coords=coords,
-            y=y,
-            modelC_factory=modelC_factory,
-            k=k,
-            max_groups_per_fold=max_groups_per_fold
+        fig, axes =visu. plot_lgbm_true_vs_pred_by_group_size(
+            dataset_obj=dataset_obj,
+            coords=coords,                      # np.array (n,2) aligné avec dataset_obj
+            target_col=target,
+            features_cols=features_utiles,
+            k_list=k_list,
+            mode=mode,                            # ou "mean"
+            max_groups=600,
+            random_state=42,
+            lgbm_params=lgbm_params,
         )
-
-            visu.plot_true_vs_pred_sector_sums(
-                true_sums_C, pred_sums_C,
-                title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
-            )
+        plt.show()
 
 
     if TEST_APPROCHE_par_CLASSES_VF:
         #targets="contenant enterré", "grand contenant", "petit contenant"
-        target = "petit contenant"
+        target = "contenant enterré"
 
         #methodes="quantile", "thresholds", "balanced_integers"
         methode="balanced_integers"
         n_classes=10
         creer_une_classe_specifique_pour_zero_vf=True
-   
+
         #
         binning_service =calcul_classes_services.TargetBinningService()
         #
@@ -622,13 +991,13 @@ if LOAD_RAW_FEATURES_VF:
         print('\n___________________________________')
         print(binning_obj.column_name)
         print(f'nb indiv par classe:{bin_log["class_counts"]}')
-       
+        
         print(f'nb classes: {len(bin_log["class_counts"])} vs attendu: {n_classes}')
         nb_obj_classes=sum([v for v in bin_log["class_counts"].values() ])
         print(f'nb objets classés: {nb_obj_classes}')
         print(f'bornes: {bornes}')
         print(f'\nlimites de classes:')
-       
+        
         for b in class_bounds:
             print(f'{b['class_id']}: {b['lower_bound']} -> {b['upper_bound']}')
         print('___________________________________')
@@ -656,7 +1025,7 @@ if LOAD_RAW_FEATURES_VF:
                 y_continuous=y_float,
             ),
             classif_models.ModelLGBMClassifier(random_state=42),
-          classif_models.ModelLogRegMultinomial(random_state=42)
+            classif_models.ModelLogRegMultinomial(random_state=42)
 
         ]
 
@@ -698,7 +1067,7 @@ if LOAD_RAW_FEATURES_VF:
 
 
         y_cls=X_all_features[class_col_name]
-   
+
 
         #TEST X_B
         TEST_CLASSIF_X_B_FV=False
@@ -727,7 +1096,7 @@ if LOAD_RAW_FEATURES_VF:
     if TEST_APPROCHE_GROUPEE_VF==True:
         #print(gpd_filtered_features.columns)
         #'contenant enterré','grand contenant', 'petit contenant'
-        use_log1p_vf=False
+        use_log1p_vf=True
         limites={}
         limites['grand']=(0,50)
         limites['petit']=(0,50)
@@ -735,7 +1104,7 @@ if LOAD_RAW_FEATURES_VF:
 
 
         cloud_visu.plot_container_scatters(gpd_filtered_features, use_log1p_vf=use_log1p_vf,limites=limites)
-       
+        
         conditionnal_histo_vf=False
         if conditionnal_histo_vf:
             targets='contenant enterré','grand contenant', 'petit contenant'
@@ -747,7 +1116,7 @@ if LOAD_RAW_FEATURES_VF:
 
         print(cloud_visu.compute_spearman_correlations(gpd_filtered_features))
 
-       
+    
 
 
 

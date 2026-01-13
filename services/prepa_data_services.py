@@ -4,7 +4,14 @@ from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 import numpy as np
 import pandas as pd
+from typing import List, Optional, Sequence, Tuple
+import math
 
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+from scipy.stats import spearmanr
 
 @dataclass(frozen=True)
 class DatasetArtifacts:
@@ -15,9 +22,205 @@ class DatasetArtifacts:
     feature_names: List[str]
     target_names: List[str]
 
-    def _reset_col_names_frm_data(self):
-        all_data_cols=self.X.columns
-        feature_names=all_data_cols
+
+    def spearman_correlations(
+        self,
+        target_col: str,
+        features_cols: list[str] | None = None,
+        plot: bool = True
+    ) -> pd.DataFrame:
+
+        if target_col not in self.Y.columns:
+            raise ValueError(f"Target column '{target_col}' not found in Y.")
+
+        target_data = self.Y[target_col]
+
+        # Select features
+        if features_cols is None:
+            # by default: all columns from X
+            features_cols = list(self.X.columns)
+
+        # Optional: keep only existing columns (helps if features_cols contains typos)
+        missing = [c for c in features_cols if c not in self.X.columns]
+        if missing:
+            raise ValueError(f"Some features are missing from X: {missing[:10]}")
+
+        features_data = self.X[features_cols]
+
+        # NaN checks
+        x_na = features_data[features_data.isna().any(axis=1)]
+        if len(x_na) > 0:
+            print(f"Existe des features nulles ({len(x_na)}):")
+            print(x_na.head(3))
+
+        y_na = target_data[target_data.isna()]
+        if len(y_na) > 0:
+            print(f"Existe des targets nulles ({len(y_na)}):")
+            print(y_na.head(3))
+
+        if len(y_na) > 0 or len(x_na) > 0:
+            sys.exit()
+        else:
+            print("Pas de NaN détecté")
+
+        results = []
+
+        # Compute feature-by-feature
+        for feat in features_cols:
+            x = features_data[feat]
+
+            # Spearman expects 1D arrays
+            corr, pval = spearmanr(target_data.to_numpy(), x.to_numpy())
+
+            results.append({
+                "feature": feat,
+                "spearman_corr": float(corr) if corr is not None else np.nan,
+                "p_value": float(pval) if pval is not None else np.nan,
+                "abs_corr": abs(float(corr)) if corr is not None else np.nan
+            })
+
+        corr_df = (
+            pd.DataFrame(results)
+            .sort_values("abs_corr", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        # Plot
+        if plot:
+            corr_plot = corr_df.dropna(subset=["spearman_corr"])
+            plt.figure(figsize=(8, max(4, 0.3 * len(corr_plot))))
+            plt.barh(corr_plot["feature"], corr_plot["spearman_corr"])
+            plt.axvline(0, linestyle="--", linewidth=1)
+            plt.xlabel("Spearman correlation")
+            plt.title(f"Spearman correlations with target: {target_col}")
+            plt.gca().invert_yaxis()
+            plt.tight_layout()
+            plt.show()
+
+        return corr_df
+
+
+    def plot_feature_target_scatter_matrix(
+        self,
+        target_col: str,
+        features_cols: Optional[Sequence[str]] = None,
+        ncols: int = 4,
+        figsize_per_cell: Tuple[float, float] = (3.2, 3.0),
+        sample: Optional[int] = None,
+        add_corr: bool = True,
+        corr_method: str = "pearson",
+        alpha: float = 0.35,
+        s: float = 8.0,
+        tight_layout: bool = True,
+        dropna: bool = True,
+        random_state: int = 42,
+    ) -> plt.Figure:
+        """
+        Plot a grid of scatter plots: each feature vs a chosen target.
+
+        Parameters
+        ----------
+        target_col : str
+            Target column name in self.Y.
+        features : Optional[Sequence[str]]
+            Feature list to plot. If None, uses self.feature_names.
+        ncols : int
+            Number of columns in the subplot grid.
+        figsize_per_cell : (float, float)
+            Figure size per subplot cell (width, height).
+        sample : Optional[int]
+            If not None, randomly sample this many rows to speed up plotting.
+        add_corr : bool
+            If True, display correlation value in each subplot title.
+        corr_method : str
+            Correlation method: "pearson", "spearman", or "kendall".
+        alpha : float
+            Scatter transparency.
+        s : float
+            Scatter marker size.
+        tight_layout : bool
+            If True, call fig.tight_layout().
+        dropna : bool
+            If True, drop rows with NA in (feature, target).
+        random_state : int
+            RNG seed for sampling.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        if target_col not in self.Y.columns:
+            raise ValueError(
+                f"target_col='{target_col}' not found in Y columns: {list(self.Y.columns)}"
+            )
+
+        selected_features = list(features_cols) if features_cols is not None else list(self.feature_names)
+
+        missing = [f for f in selected_features if f not in self.X.columns]
+        if missing:
+            raise ValueError(f"Some features are missing from X: {missing}")
+
+        # Build a working DataFrame aligned on index
+        df = self.X[selected_features].join(self.Y[[target_col]], how="inner")
+
+        # Optional sampling
+        if sample is not None and sample > 0 and len(df) > sample:
+            df = df.sample(n=sample, random_state=random_state)
+
+        n_features = len(selected_features)
+        if n_features == 0:
+            raise ValueError("No features to plot (selected_features is empty).")
+
+        ncols = max(1, int(ncols))
+        nrows = math.ceil(n_features / ncols)
+
+        fig_w = figsize_per_cell[0] * ncols
+        fig_h = figsize_per_cell[1] * nrows
+        fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(fig_w, fig_h))
+        axes = np.array(axes).reshape(-1)  # flatten safely even if nrows/ncols == 1
+
+        y = df[target_col]
+
+        for i, feat in enumerate(selected_features):
+            ax = axes[i]
+            x = df[feat]
+
+            if dropna:
+                mask = x.notna() & y.notna()
+                x_plot = x[mask]
+                y_plot = y[mask]
+            else:
+                x_plot = x
+                y_plot = y
+
+            ax.scatter(x_plot, y_plot, alpha=alpha, s=s)
+
+            title = feat
+            if add_corr:
+                # corr() handles non-numeric by returning NaN; ensure numeric if needed
+                try:
+                    corr_val = pd.Series(x_plot).corr(pd.Series(y_plot), method=corr_method)
+                except Exception:
+                    corr_val = np.nan
+                if pd.notna(corr_val):
+                    title = f"{feat} (r={corr_val:.2f})"
+                else:
+                    title = f"{feat} (r=NaN)"
+
+            ax.set_title(title)
+            ax.set_xlabel(feat)
+            ax.set_ylabel(target_col)
+
+        # Hide unused subplots
+        for j in range(n_features, len(axes)):
+            axes[j].axis("off")
+
+        fig.suptitle(f"Feature vs target scatter grid — target='{target_col}'", y=1.02)
+
+        if tight_layout:
+            fig.tight_layout()
+
+        return fig
 
 
 class DataSchemaError(ValueError):
@@ -106,8 +309,22 @@ class BuildingsCountDataPreparationService:
                 drop_original_surfaces=drop_original_buffer_surfaces_after_ratio,
                 keep_buffer_area_cols=keep_buffer_area_cols,
             )
+
+
+            #'ratio_surf_broussaille_b10_m', 'ratio_surf_conifere_b10_m', 'ratio_surf_feuillu_b10_m', 'ratio_surf_pelouse_b10_m', 'ratio_surf_piscine_b10_m', 'ratio_surf_serre_b10_m',
+            buffers=['b10_m','b50_m']
+            col_veg='ratio_surf_broussaille', 'ratio_surf_conifere', 'ratio_surf_feuillu', 'ratio_surf_pelouse', 'ratio_surf_serre',
+            for b in buffers:
+                col_c=f"ratio_veg_{b}"
+                col_s=[f"{c}_{b}" for c in col_veg]
+                print(col_s)
+                data[col_c] = data[col_s].sum(axis=1) if col_s else 0.0
+                ratio_cols.append(col_c)
+            #print(data[['ratio_veg_b10_m', 'ratio_veg_b50_m']].head(2))
+
             # Add ratio columns to features list
             features_col = features_col + ratio_cols
+            
 
             # If requested, optionally drop original buffer surface columns
             # (Already handled in the helper when drop_original_surfaces=True)
@@ -218,6 +435,10 @@ class BuildingsCountDataPreparationService:
                 data[ratio_col] = data[c].astype(float) / denom_safe
                 ratio_cols.append(ratio_col)
 
+                
+
+        
+
             # Optionally drop original surface columns (but typically keep them during exploration)
             if drop_original_surfaces:
                 data = data.drop(columns=suffix_cols, errors="ignore")
@@ -266,6 +487,10 @@ class BuildingsCountDataPreparationService:
         for c in out.columns:
             out[c] = pd.to_numeric(out[c], errors="raise")
         return out
+    
+    def _reset_col_names_frm_data(self):
+        all_data_cols=self.X.columns
+        feature_names=all_data_cols
     
 
         

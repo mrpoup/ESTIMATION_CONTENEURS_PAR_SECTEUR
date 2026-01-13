@@ -34,6 +34,32 @@ def spatial_knn_rse(
 
     return rse
 
+def make_group_sums_and_means_knn(
+    coords,
+    y_true,
+    y_pred,
+    k=120,
+    max_groups=600,
+    seed=42
+):
+    """
+    Build kNN groups and return:
+      - true_sums, pred_sums
+      - true_means, pred_means
+    """
+    true_sums, pred_sums = make_group_sums_knn(
+        coords=coords,
+        y_true=y_true,
+        y_pred=y_pred,
+        k=k,
+        max_groups=max_groups,
+        seed=seed
+    )
+
+    true_means = true_sums / k
+    pred_means = pred_sums / k
+
+    return true_sums, pred_sums, true_means, pred_means
 
 
 def make_group_sums_knn(coords, y_true, y_pred, k=120, max_groups=600, seed=42):
@@ -59,3 +85,5 @@ def make_group_sums_knn(coords, y_true, y_pred, k=120, max_groups=600, seed=42):
     true_sums = np.array([y_true[indices[i]].sum() for i in seeds], dtype=float)
     pred_sums = np.array([y_pred[indices[i]].sum() for i in seeds], dtype=float)
     return true_sums, pred_sums
+
+
