@@ -36,6 +36,41 @@ LOAD_DONNEES_BATIMENTS_VF=False
 #Les données maisons->bâtiments->cosia sont calculées
 LOAD_RAW_FEATURES_VF=True
 
+TEST_TOUT_VF=False
+    #_____________________
+if TEST_TOUT_VF==False:
+    TEST_BASES_LINES_VF=True
+    #
+    TEST_AGGREG_ABC_KNN_VF=True
+    TEST_AGGREG_ABC_KNN_VISU_VF=False
+    #
+    TEST_VISU_COURBES_REGRESSION_VF=False
+    #
+    TEST_VISU_COURBES_AGREG_vf=True
+    TEST_VISU_SCATTERS_par_GROUPE_v2_vf=False
+    #
+    TEST_APPROCHE_par_CLASSES_VF=False
+    TEST_APPROCHE_GROUPEE_VF=False
+
+else:
+    TEST_BASES_LINES_VF=True
+    TEST_AGGREG_ABC_KNN_UN_TYPE_VF=True
+    #
+    TEST_AGGREG_ABC_KNN_VF=True
+    TEST_AGGREG_ABC_KNN_VISU_VF=True
+    #
+    TEST_VISU_COURBES_REGRESSION_VF=True 
+    #
+    TEST_VISU_SCATTERS_par_GROUPE_v2_vf=True 
+    #
+    TEST_APPROCHE_par_CLASSES_VF=True
+    TEST_APPROCHE_GROUPEE_VF=True
+
+
+    #CONTEXTE:
+    if TEST_VISU_COURBES_REGRESSION_VF or TEST_AGGREG_ABC_KNN_VISU_VF:
+            TEST_AGGREG_ABC_KNN_VF=True
+
 
 
 if LOAD_anf_AGGREG_DONNEES_ENQUETE_VF:
@@ -601,39 +636,7 @@ if LOAD_RAW_FEATURES_VF:
         #
         #_______________________________________
 
-    TEST_TOUT_VF=False
-    #_____________________
-    if TEST_TOUT_VF==False:
-        TEST_BASES_LINES_VF=True
-        #
-        TEST_AGGREG_ABC_KNN_VF=True
-        TEST_AGGREG_ABC_KNN_VISU_VF=False
-        #
-        TEST_VISU_COURBES_REGRESSION_VF=False
-        #
-        TEST_VISU_par_GROUPE_v2_vf=False
-        #
-        TEST_APPROCHE_par_CLASSES_VF=False
-        TEST_APPROCHE_GROUPEE_VF=False
-
-    else:
-        TEST_BASES_LINES_VF=True
-        TEST_AGGREG_ABC_KNN_UN_TYPE_VF=True
-        #
-        TEST_AGGREG_ABC_KNN_VF=True
-        TEST_AGGREG_ABC_KNN_VISU_VF=True
-        #
-        TEST_VISU_COURBES_REGRESSION_VF=True 
-        #
-        TEST_VISU_par_GROUPE_v2_vf=True 
-        #
-        TEST_APPROCHE_par_CLASSES_VF=True
-        TEST_APPROCHE_GROUPEE_VF=True
-
-
-    #CONTEXTE:
-    if TEST_VISU_COURBES_REGRESSION_VF or TEST_AGGREG_ABC_KNN_VISU_VF:
-            TEST_AGGREG_ABC_KNN_VF=True
+    
 
     features_utiles=dataset_obj.feature_names
     # features_utiles=['surf_batiment_source_m2',
@@ -1161,6 +1164,153 @@ if LOAD_RAW_FEATURES_VF:
             ]
         return out
 
+
+    def plot_summaries_by_target(
+        summaries_by_target: dict,
+        metrics: list[str] = ("RSE_median", "RSE_p95"),
+        stat: str = "mean",                   # "mean" or "std"
+        model_order: list[str] | None = None, # optional ordering
+        group_order: list[int] | None = None, # optional ordering
+        grouping_label: str | None = None,    # "knn" or "random" (for titles)
+        mode_label: str | None = None,        # "sum" or "mean" (for titles)
+        round_digits: int = 3,
+        annotate: bool = True,
+        figsize_per_cell: tuple[float, float] = (6.2, 4.2),
+    ):
+        """
+        Plot CV summary curves from your 'summary_spatial' tables.
+
+        Parameters
+        ----------
+        summaries_by_target : dict[target -> summary_df]
+            Each value is what you call `summary_spatial` (output of build_readable_cv_table),
+            either with MultiIndex columns (metric, stat) OR flattened columns like "RSE_median__mean".
+        metrics : list[str]
+            Metric names exactly as used in summary (e.g. "RSE_median", "RSE_p95", "MAE_sum", "MAE_meanGrp"...).
+            NOTE: RSE metrics are independent of sum/mean; sum/mean-specific metrics must be chosen accordingly.
+        stat : "mean" or "std"
+            Which fold-aggregation statistic to plot.
+        model_order, group_order : optional
+            If provided, enforce ordering of model and group sizes.
+        grouping_label : optional
+            String used only for title. Example: "knn" or "random".
+        mode_label : optional
+            String used only for title. Example: "sum" or "mean".
+        annotate : bool
+            If True, prints numeric values on each point.
+        """
+
+        if isinstance(metrics, str):
+            metrics = [metrics]
+
+        # --- Helpers to read values regardless of column style (MultiIndex vs flattened)
+        def _has_multiindex_columns(df: pd.DataFrame) -> bool:
+            return isinstance(df.columns, pd.MultiIndex)
+
+        def _get_series(df: pd.DataFrame, metric: str, stat: str) -> pd.Series:
+            if _has_multiindex_columns(df):
+                # columns like ("RSE_median", "mean")
+                if (metric, stat) not in df.columns:
+                    raise KeyError(f"Missing column {(metric, stat)} in MultiIndex columns.")
+                return df[(metric, stat)]
+            else:
+                # columns like "RSE_median__mean"
+                col = f"{metric}__{stat}"
+                if col not in df.columns:
+                    raise KeyError(f"Missing column '{col}' in flattened columns.")
+                return df[col]
+
+        # --- Prepare layout
+        targets = list(summaries_by_target.keys())
+        n_targets = len(targets)
+        n_metrics = len(metrics)
+
+        fig_w = figsize_per_cell[0] * n_metrics
+        fig_h = figsize_per_cell[1] * n_targets
+        fig, axes = plt.subplots(nrows=n_targets, ncols=n_metrics, figsize=(fig_w, fig_h), squeeze=False,constrained_layout=True)
+
+        # --- Plot each target row
+        for i, target in enumerate(targets):
+            df = summaries_by_target[target].copy()
+
+            # Basic columns (your summary has these)
+            # Works both for MultiIndex and flattened columns
+            if "Model" not in df.columns or "Group_size" not in df.columns:
+                raise ValueError(
+                    f"Summary for target '{target}' must contain columns 'Model' and 'Group_size'."
+                )
+
+            # Order model and group if requested
+            if model_order is not None:
+                df["Model"] = pd.Categorical(df["Model"], categories=model_order, ordered=True)
+            if group_order is not None:
+                df["Group_size"] = pd.Categorical(df["Group_size"], categories=group_order, ordered=True)
+
+            df = df.sort_values(["Model", "Group_size"])
+
+            for j, metric in enumerate(metrics):
+                ax = axes[i, j]
+
+                # One curve per model
+                models = model_order if model_order is not None else list(df["Model"].unique())
+
+                for m in models:
+                    dfi = df[df["Model"] == m].copy()
+                    if dfi.empty:
+                        continue
+
+                    x = dfi["Group_size"].astype(float).to_numpy()
+                    y = _get_series(dfi, metric, stat).astype(float).to_numpy()
+
+                    ax.plot(x, y, marker="o", linewidth=2, label=str(m))
+
+                    if annotate:
+                        for xv, yv in zip(x, y):
+                            if np.isfinite(yv):
+                                ax.annotate(
+                                    f"{yv:.{round_digits}f}",
+                                    (xv, yv),
+                                    textcoords="offset points",
+                                    xytext=(0, 7),
+                                    ha="center",
+                                    fontsize=9
+                                )
+
+                ax.set_xlabel("Group size (k)")
+                ax.set_ylabel(f"{metric} ({stat})")
+                ax.grid(True, alpha=0.2)
+
+                # Title per cell
+                title_parts = [str(target), metric]
+                if grouping_label:
+                    title_parts.append(f"grouping={grouping_label}")
+                if mode_label:
+                    title_parts.append(f"mode={mode_label}")
+                ax.set_title(" | ".join(title_parts))
+
+                # legend only on first row / first metric (avoid repetition)
+                if i == 0 and j == 0:
+                    ax.legend(loc="best", frameon=True)
+
+        # Global title
+        suptitle = "CV summary curves"
+        if grouping_label or mode_label:
+            extras = []
+            if grouping_label:
+                extras.append(f"grouping={grouping_label}")
+            if mode_label:
+                extras.append(f"mode={mode_label}")
+            suptitle += " — " + ", ".join(extras)
+
+        fig.suptitle(suptitle, y=1.02, fontsize=14)
+
+        #plt.tight_layout(rect=[0, 0, 1, 0.95])  # laisse 5% en haut pour le titre
+
+        plt.show()
+       
+        return fig, axes
+
+
     if  TEST_AGGREG_ABC_KNN_VF:
         Test_aggreg_ABC_KNN_summaries={}
 
@@ -1169,8 +1319,8 @@ if LOAD_RAW_FEATURES_VF:
             y = dataset_obj.Y[target]
             max_groups=None
             #
-            #mode_groupement="random"
-            mode_groupement="knn"
+            mode_groupement="random"
+            #mode_groupement="knn"
             #
 
             spatial_results =comparison_regression_models_services.cv_spatial_knn_protocol_ABC(
@@ -1198,6 +1348,7 @@ if LOAD_RAW_FEATURES_VF:
 
             print(summary_spatial)
             print(f'\nFin summary: {target}:')
+ 
             
 
             # rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique_v2'
@@ -1205,69 +1356,174 @@ if LOAD_RAW_FEATURES_VF:
             # summary_spatial.to_csv(file_out)
 
         
-            if TEST_VISU_COURBES_REGRESSION_VF:
-                #targets="contenant enterré", "grand contenant", "petit contenant"
+            # if TEST_VISU_COURBES_REGRESSION_VF:
+            #     #targets="contenant enterré", "grand contenant", "petit contenant"
             
-                def scatters_results(target, k,min_max=None):
-                    max_groups_per_fold=100
-                    #
-                    modelC_factory =lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
-                    #
-                    true_sums_C, pred_sums_C = comparison_regression_models_services.cv_collect_group_sums_modelC(
-                    X_C=X_C,
-                    coords=coords,
-                    y=y,
-                    modelC_factory=modelC_factory,
-                    k=k,
-                    max_groups_per_fold=max_groups_per_fold
-                )
+            #     def scatters_results(target, k,min_max=None):
+            #         max_groups_per_fold=100
+            #         #
+            #         modelC_factory =lambda: modeles_services_regression.ModelCPoissonLGBM(params=None, random_state=42)
+            #         #
+            #         true_sums_C, pred_sums_C = comparison_regression_models_services.cv_collect_group_sums_modelC(
+            #         X_C=X_C,
+            #         coords=coords,
+            #         y=y,
+            #         modelC_factory=modelC_factory,
+            #         k=k,
+            #         max_groups_per_fold=max_groups_per_fold
+            #     )
 
-                    visu.plot_true_vs_pred_sector_sums(
-                        true_sums_C, pred_sums_C,
-                        k=k,
-                        min_max=min_max,
-                        title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
-                    )
+            #         visu.plot_true_vs_pred_sector_sums(
+            #             true_sums_C, pred_sums_C,
+            #             k=k,
+            #             min_max=min_max,
+            #             title=f"{target} — Totaux par pseudo-secteur k={k} (CV, modèle C)"
+            #         )
 
-                use_min_max_vf=False
-                if use_min_max_vf:
-                    min_max=lim_graphes_correl[target]
-                else:
-                    min_max=None
-                scatters_results(target=target,min_max=min_max, k=groups_regression)
+            #     use_min_max_vf=False
+            #     if use_min_max_vf:
+            #         min_max=lim_graphes_correl[target]
+            #     else:
+            #         min_max=None
+            #     scatters_results(target=target,min_max=min_max, k=groups_regression)
 
-        rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique'
-        file_out=os.path.join(rep_out,f'cv_knn_summary_{mode_groupement}.xlsx')
+        export_excel_vf=False
+        if export_excel_vf:
+            rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique'
+            file_out=os.path.join(rep_out,f'cv_knn_summary_{mode_groupement}.xlsx')
 
-        export_tables_to_excel(Test_aggreg_ABC_KNN_summaries, file_out)
-        print(f'knn summary exporté vers:\n {file_out}')
+            export_tables_to_excel(Test_aggreg_ABC_KNN_summaries, file_out)
+            print(f'knn summary exporté vers:\n {file_out}')
 
        
-        visu_plots_vf=False
-        if TEST_AGGREG_ABC_KNN_VISU_VF:
-                print('\n')
-                print(target)
-                
-                if visu_plots_vf:
-                    visu.plot_graph1_multitarget(
-                    summaries=Test_aggreg_ABC_KNN_summaries,
-                    ks=pks ,
-                    as_percent=True
-                    )
-
-                    visu.plot_graph1_ultra_decideur(
-                    summaries=Test_aggreg_ABC_KNN_summaries,          # dict: {target_name: summary_df}
-                    ks=pks,
-                    as_percent=True
-                    )
-
+        
     
-    if TEST_VISU_par_GROUPE_v2_vf:
+    
+    def list_available_metrics(summary_df: pd.DataFrame) -> list[str]:
+        """
+        Return the list of available metric names in a summary table
+        with MultiIndex columns (metric, stat).
+        Keeps only numeric metric blocks (i.e. those that have 'mean'/'std').
+        """
+        if not isinstance(summary_df.columns, pd.MultiIndex):
+            # flattened case: take prefix before "__"
+            return sorted({c.split("__")[0] for c in summary_df.columns if "__" in c})
+
+        lvl0 = summary_df.columns.get_level_values(0)
+        lvl1 = summary_df.columns.get_level_values(1)
+
+        # metrics are those having mean/std blocks (exclude the metadata columns with stat "")
+        metrics = sorted({
+            m for m, s in zip(lvl0, lvl1)
+            if s in ("mean", "std") and m not in ("Model", "Group_size", "Target", "Grouping")
+        })
+        return metrics
+
+    def default_metrics_for_mode(mode: str, kind: str = "quality") -> list[str]:
+        """
+        mode: "sum" or "mean"
+        kind:
+        - "quality": MAE/RMSE + corr
+        - "bias": Bias + RelBias
+        - "rse": RSE_median + RSE_p95 (indépendant du mode)
+        """
+        mode = mode.lower().strip()
+        if kind == "rse":
+            return ["RSE_median", "RSE_p95"]
+
+        if mode == "sum":
+            if kind == "quality":
+                return ["Pearson_sum", "Spearman_sum", "MAE_sum", "RMSE_sum"]
+            if kind == "bias":
+                return ["Bias_sum", "RelBias_sum"]
+
+        if mode == "mean":
+            if kind == "quality":
+                return ["Pearson_meanGrp", "Spearman_meanGrp", "MAE_meanGrp", "RMSE_meanGrp"]
+            if kind == "bias":
+                return ["Bias_meanGrp", "RelBias_meanGrp"]
+
+        raise ValueError("mode must be 'sum' or 'mean', and kind in {'quality','bias','rse'}")
+
+
+
+    if TEST_VISU_COURBES_AGREG_vf:
+        stat="mean"  #"std"
+       
+        visu_indicateurs_dispo_vf=False
+        if visu_indicateurs_dispo_vf:
+            first_target = next(iter(Test_aggreg_ABC_KNN_summaries))
+            summary0 = Test_aggreg_ABC_KNN_summaries[first_target]
+
+            print(list_available_metrics(summary0))
+        #['Bias_meanGrp', 'Bias_sum', 
+        # 'MAE_meanGrp', 'MAE_sum', 
+        # 'N_groups',
+        #  'Pearson_meanGrp', 'Pearson_sum'
+        # , 'RMSE_meanGrp', 'RMSE_sum',
+        #  'RSE_mean', 'RSE_median', 'RSE_p90', 'RSE_p95',
+        #  'RelBias_meanGrp', 'RelBias_sum',
+        #  'Spearman_meanGrp', 'Spearman_sum']
+
+        else:  #sinon...action!
+            mode_label="cumul"
+            fig, axes=plot_summaries_by_target(
+                summaries_by_target=Test_aggreg_ABC_KNN_summaries,
+                metrics=["RSE_median", "RSE_p95"],
+                stat=stat,
+                grouping_label=mode_groupement,     # ou "random"
+                mode_label=mode_label,              # juste pour info dans le titre (RSE s’applique aux deux)
+                round_digits=3,
+                annotate=True
+            )
+            plt.close(fig)
+
+            mode_label="moyenne"
+            fig, axes=plot_summaries_by_target(
+                summaries_by_target=Test_aggreg_ABC_KNN_summaries,
+                metrics=["MAE_meanGrp", "RMSE_meanGrp"],
+                stat=stat,
+                grouping_label=mode_groupement,     # ou "random"
+                mode_label=mode_label,              # juste pour info dans le titre (RSE s’applique aux deux)
+                round_digits=3,
+                annotate=True
+            )
+            plt.close(fig)
+
+            
+            mode_label="moyenne"
+            fig, axes=plot_summaries_by_target(
+                summaries_by_target=Test_aggreg_ABC_KNN_summaries,
+                metrics=["Pearson_meanGrp", "Spearman_meanGrp"],
+                stat=stat,
+                grouping_label=mode_groupement,     # ou "random"
+                mode_label=mode_label,              # juste pour info dans le titre (RSE s’applique aux deux)
+                round_digits=3,
+                annotate=True
+            )
+            plt.close(fig)
+
+            
+            mode_label="cumul"
+            fig, axes=plot_summaries_by_target(
+                summaries_by_target=Test_aggreg_ABC_KNN_summaries,
+                metrics=["Pearson_sum", "Spearman_sum"],
+                stat=stat,
+                grouping_label=mode_groupement,     # ou "random"
+                mode_label=mode_label,              # juste pour info dans le titre (RSE s’applique aux deux)
+                round_digits=3,
+                annotate=True
+            )
+            plt.close(fig)
+
+
+
+    if TEST_VISU_SCATTERS_par_GROUPE_v2_vf:
         k_list=[10, 50, 90]
-        mode="sum" # ou "mean"
-        #mode="mean"
-        #grouping_mode="random"
-        grouping_mode="knn"
+        #mode="sum" # ou "mean"
+        mode="mean"
+        grouping_mode="random"
+        #grouping_mode="knn"
 
 
         for target in targets:

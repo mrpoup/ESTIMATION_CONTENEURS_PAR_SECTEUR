@@ -158,6 +158,7 @@ def plot_graph1_multitarget(summaries, ks , as_percent=True):
 def _extract_curve(summary, model, metric, ks ):
     y_mean = []
     y_std = []
+    print(summary.columns)
     for k in ks:
         y_mean.append(summary.loc[(model, k), (metric, "mean")])
         y_std.append(summary.loc[(model, k), (metric, "std")])
