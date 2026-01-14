@@ -22,128 +22,54 @@ def _safe_corrs(x, y):
     s = float(spearmanr(x, y).correlation)
     return p, s
 
-
-def plot_lgbm_true_vs_pred_by_group_size(
-    dataset_obj,
-    coords,
-    target_col: str,
-    features_cols: list[str],
-    k_list: list[int] = (30, 60, 120),
-    mode: str = "sum",               # "sum" or "mean"
-    test_size: float = 0.2,
-    random_state: int = 42,
-    max_groups: int = 600,
-    gridsize: int = 40,
-    lgbm_params: dict | None = None,
+def cv_collect_group_sums_modelC(
+    X_C, coords, y, modelC_factory,
+    k=120, n_splits=5, random_state=42, max_groups_per_fold=600,
+    grouping: str = "knn",
 ):
-    """
-    Train a LightGBM Poisson on point-level data, then evaluate aggregated predictions
-    over kNN groups in the TEST set. Produce one scatter/hexbin panel per k.
+    grouping = grouping.lower().strip()
+    if grouping not in ("knn", "random"):
+        raise ValueError("grouping must be 'knn' or 'random'")
 
-    Parameters
-    ----------
-    dataset_obj : object with .X and .Y
-    coords : np.ndarray (n,2) coordinates aligned with dataset_obj rows
-    target_col : str
-    features_cols : list[str]
-    k_list : list[int]
-    mode : "sum" or "mean"
-    test_size, random_state : split controls
-    max_groups : max number of groups plotted (seed subsampling)
-    gridsize : hexbin resolution
-    lgbm_params : optional params passed to your ModelCPoissonLGBM
-
-    Returns
-    -------
-    fig, axes
-    """
-    assert mode in ("sum", "mean"), "mode must be 'sum' or 'mean'"
-
-    X = dataset_obj.X[features_cols].copy()
-    y = dataset_obj.Y[target_col].copy()
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    all_true, all_pred = [], []
     coords = np.asarray(coords)
 
-    # Split indices to keep alignment with coords
-    idx = np.arange(len(y))
-    train_idx, test_idx = train_test_split(idx, test_size=test_size, random_state=random_state, shuffle=True)
+    for fold, (train_idx, test_idx) in enumerate(kf.split(X_C), start=1):
+        X_train, X_test = X_C.iloc[train_idx], X_C.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        coords_test = coords[test_idx]
 
-    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-    coords_test = coords[test_idx]
+        model = modelC_factory()
+        model.fit(X_train, y_train)
+        y_pred_test = np.asarray(model.predict(X_test), dtype=float)
 
-    # Fit LightGBM Poisson (your wrapper)
-    C = modeles_services_regression.ModelCPoissonLGBM(params=lgbm_params, random_state=random_state)
-    C.fit(X_train, y_train)
-    y_pred_test = np.asarray(C.predict(X_test), dtype=float)
+        seed_groups = 1000 * fold + k
 
-    # Numerical safety
-    y_test_np = y_test.to_numpy(dtype=float)
-    y_pred_test = np.clip(y_pred_test, 1e-9, None)
-
-    # Layout
-    k_list = list(k_list)
-    n = len(k_list)
-    ncols = min(3, n)
-    nrows = int(np.ceil(n / ncols))
-
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(6.2 * ncols, 5.6 * nrows))
-    axes = np.atleast_1d(axes).ravel()
-
-    for ax, k in zip(axes, k_list):
-        if k >= len(y_test_np):
-            ax.set_visible(False)
-            continue
-
-        # Use deterministic seed so the same groups are used if you re-run
-        seed_groups = int(random_state + 10 * k)
-
-        true_sums, pred_sums = spatial_grouping_services.make_group_sums_knn(
-            coords_test, y_test_np, y_pred_test, k=k, max_groups=max_groups, seed=seed_groups
-        )
-
-        if mode == "mean":
-            true_vals = true_sums / float(k)
-            pred_vals = pred_sums / float(k)
-            xlab = f"Moyenne observée (k={k})"
-            ylab = f"Moyenne estimée (k={k})"
+        if grouping == "knn":
+            t, p = spatial_grouping_services.make_group_sums_knn(
+                coords=coords_test,
+                y_true=y_test.to_numpy(),
+                y_pred=y_pred_test,
+                k=k,
+                max_groups=max_groups_per_fold,
+                seed=seed_groups
+            )
         else:
-            true_vals = true_sums
-            pred_vals = pred_sums
-            xlab = f"Somme observée (k={k})"
-            ylab = f"Somme estimée (k={k})"
+            t, p = spatial_grouping_services.make_group_sums_random(
+                y_true=y_test.to_numpy(),
+                y_pred=y_pred_test,
+                k=k,
+                max_groups=max_groups_per_fold,
+                seed=seed_groups
+            )
 
-        # Corrs
-        pr, sr = _safe_corrs(true_vals, pred_vals)
+        all_true.append(t)
+        all_pred.append(p)
 
-        # Plot as hexbin (more readable than scatter when dense)
-        hb = ax.hexbin(true_vals, pred_vals, gridsize=gridsize, mincnt=1)
-        cb = fig.colorbar(hb, ax=ax)
-        cb.set_label("Densité (hexbin)")
+    return np.concatenate(all_true), np.concatenate(all_pred)
 
-        # Reference y=x
-        minv = float(min(np.nanmin(true_vals), np.nanmin(pred_vals)))
-        maxv = float(max(np.nanmax(true_vals), np.nanmax(pred_vals)))
-        ax.plot([minv, maxv], [minv, maxv], linewidth=2)
 
-        # Title with correlations
-        ax.set_title(
-            f"{target_col} | mode={mode} | k={k}\n"
-            f"Pearson r={pr:.3f} | Spearman ρ={sr:.3f}"
-        )
-
-        ax.set_xlabel(xlab)
-        ax.set_ylabel(ylab)
-        ax.grid(True, alpha=0.2)
-
-    # Hide unused axes
-    for j in range(len(k_list), len(axes)):
-        axes[j].set_visible(False)
-
-    fig.suptitle(f"LightGBM Poisson — Observé vs Estimé (agrégation kNN) — {target_col}", y=1.02, fontsize=14)
-    plt.tight_layout()
-    plt.show()
-
-    return fig, axes
 
 
 
@@ -312,56 +238,106 @@ def plot_graph1_ultra_decideur(
 
 
 
-def plot_true_vs_pred_sector_sums(true_sums, pred_sums, k, min_max, title, gridsize=40):
-    true_sums = np.asarray(true_sums, dtype=float)
-    pred_sums = np.asarray(pred_sums, dtype=float)
+def plot_lgbm_true_vs_pred_by_group_size(
+    dataset_obj,
+    coords,
+    target_col: str,
+    features_cols: list[str],
+    k_list: list[int] = (30, 60, 120),
+    mode: str = "sum",
+    test_size: float = 0.2,
+    random_state: int = 42,
+    max_groups: int = 600,
+    gridsize: int = 40,
+    lgbm_params: dict | None = None,
+    grouping: str = "knn",   # NEW
+):
+    grouping = grouping.lower().strip()
+    if grouping not in ("knn", "random"):
+        raise ValueError("grouping must be 'knn' or 'random'")
 
-    # Valeurs globales (comportement par défaut)
-    minv = float(min(true_sums.min(), pred_sums.min()))
-    maxv = float(max(true_sums.max(), pred_sums.max()))
+    assert mode in ("sum", "mean"), "mode must be 'sum' or 'mean'"
 
-    # Si min_max est fourni, on l'utilise pour l'affichage
-    if min_max is not None:
-        vmin, vmax = min_max
-        minv_plot, maxv_plot = vmin, vmax
-    else:
-        minv_plot, maxv_plot = minv, maxv
+    X = dataset_obj.X[features_cols].copy()
+    y = dataset_obj.Y[target_col].copy()
+    coords = np.asarray(coords)
 
-    fig, ax = plt.subplots(figsize=(8.8, 7.2))
+    idx = np.arange(len(y))
+    train_idx, test_idx = train_test_split(idx, test_size=test_size, random_state=random_state, shuffle=True)
 
-    hb = ax.hexbin(true_sums, pred_sums, gridsize=gridsize, mincnt=1)
-    cb = fig.colorbar(hb, ax=ax)
-    cb.set_label("Densité de groupes (hexbin)")
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+    coords_test = coords[test_idx]
 
-    # Reference lines (tracées sur la zone visible)
-    x = np.array([minv_plot, maxv_plot], dtype=float)
+    C = modeles_services_regression.ModelCPoissonLGBM(params=lgbm_params, random_state=random_state)
+    C.fit(X_train, y_train)
+    y_pred_test = np.asarray(C.predict(X_test), dtype=float)
 
-    # y = x
-    ax.plot(x, x, linewidth=2)
+    y_test_np = y_test.to_numpy(dtype=float)
+    y_pred_test = np.clip(y_pred_test, 1e-9, None)
 
-    # ±10% (dashed)
-    ax.plot(x, 1.10 * x, linestyle="--", linewidth=1.5)
-    ax.plot(x, 0.90 * x, linestyle="--", linewidth=1.5)
+    k_list = list(k_list)
+    n = len(k_list)
+    ncols = min(3, n)
+    nrows = int(np.ceil(n / ncols))
 
-    # ±20% (dotted)
-    ax.plot(x, 1.20 * x, linestyle=":", linewidth=1.8)
-    ax.plot(x, 0.80 * x, linestyle=":", linewidth=1.8)
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(6.2 * ncols, 5.6 * nrows))
+    axes = np.atleast_1d(axes).ravel()
 
-    # Limitation des axes si demandé
-    ax.set_xlim(minv_plot, maxv_plot)
-    ax.set_ylim(minv_plot, maxv_plot)
+    for ax, k in zip(axes, k_list):
+        if k >= len(y_test_np):
+            ax.set_visible(False)
+            continue
 
-    ax.set_xlabel(f"Total observé sur le groupe (k={k})")
-    ax.set_ylabel(f"Total estimé sur le groupe (k={k})")
-    ax.set_title(title)
-    ax.grid(True, alpha=0.2)
+        seed_groups = int(random_state + 10 * k)
 
-    # Legend (lines only)
-    legend_elements = [
-        Line2D([0], [0], color="black", lw=2, label="Parfait : estimé = observé (y=x)"),
-        Line2D([0], [0], color="black", lw=1.5, linestyle="--", label="Bande ±10%"),
-        Line2D([0], [0], color="black", lw=1.8, linestyle=":", label="Bande ±20%"),
-    ]
-    ax.legend(handles=legend_elements, loc="upper left", frameon=True)
+        if grouping == "knn":
+            true_sums, pred_sums = spatial_grouping_services.make_group_sums_knn(
+                coords_test, y_test_np, y_pred_test, k=k, max_groups=max_groups, seed=seed_groups
+            )
+        else:
+            true_sums, pred_sums = spatial_grouping_services.make_group_sums_random(
+                y_test_np, y_pred_test, k=k, max_groups=max_groups, seed=seed_groups
+            )
 
+        if mode == "mean":
+            true_vals = true_sums / float(k)
+            pred_vals = pred_sums / float(k)
+            xlab = f"Moyenne observée (k={k})"
+            ylab = f"Moyenne estimée (k={k})"
+        else:
+            true_vals = true_sums
+            pred_vals = pred_sums
+            xlab = f"Somme observée (k={k})"
+            ylab = f"Somme estimée (k={k})"
+
+        pr, sr = _safe_corrs(true_vals, pred_vals)
+
+        hb = ax.hexbin(true_vals, pred_vals, gridsize=gridsize, mincnt=1)
+        cb = fig.colorbar(hb, ax=ax)
+        cb.set_label("Densité (hexbin)")
+
+        minv = float(min(np.nanmin(true_vals), np.nanmin(pred_vals)))
+        maxv = float(max(np.nanmax(true_vals), np.nanmax(pred_vals)))
+        ax.plot([minv, maxv], [minv, maxv], linewidth=2)
+
+        ax.set_title(
+            f"{target_col} | {grouping} | mode={mode} | k={k}\n"
+            f"Pearson r={pr:.3f} | Spearman ρ={sr:.3f}"
+        )
+        ax.set_xlabel(xlab)
+        ax.set_ylabel(ylab)
+        ax.grid(True, alpha=0.2)
+
+    for j in range(len(k_list), len(axes)):
+        axes[j].set_visible(False)
+
+    fig.suptitle(
+        f"LightGBM Poisson — Observé vs Estimé — {target_col} — grouping={grouping}",
+        y=1.02, fontsize=14
+    )
+    plt.tight_layout()
     plt.show()
+
+    return fig, axes
+

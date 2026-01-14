@@ -606,12 +606,12 @@ if LOAD_RAW_FEATURES_VF:
     if TEST_TOUT_VF==False:
         TEST_BASES_LINES_VF=True
         #
-        TEST_AGGREG_ABC_KNN_VF=False
+        TEST_AGGREG_ABC_KNN_VF=True
         TEST_AGGREG_ABC_KNN_VISU_VF=False
         #
         TEST_VISU_COURBES_REGRESSION_VF=False
         #
-        TEST_VISU_par_GROUPE_v2_vf=True
+        TEST_VISU_par_GROUPE_v2_vf=False
         #
         TEST_APPROCHE_par_CLASSES_VF=False
         TEST_APPROCHE_GROUPEE_VF=False
@@ -808,18 +808,345 @@ if LOAD_RAW_FEATURES_VF:
         for target in targets:        
             test_models.set_test_A_B(target,X,Y,avec_agreg=False)
 
-    
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment
+    from openpyxl.utils import get_column_letter
+
+    def export_concat_table_to_excel_merged_headers(
+        df: pd.DataFrame,
+        filepath: str,
+        sheet_name: str = "Summary",
+        freeze_panes: str = "A3",
+        auto_width: bool = True,
+    ) -> None:
+        """
+        Export a DataFrame with 2-level MultiIndex columns to a single Excel sheet
+        with merged top headers (level 0) and second-row subheaders (level 1).
+
+        If df.columns is not a MultiIndex, it will still export, but without merges.
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = sheet_name[:31]
+
+        header_font = Font(bold=True)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        # -------------------------
+        # Prepare headers
+        # -------------------------
+        if isinstance(df.columns, pd.MultiIndex) and df.columns.nlevels >= 2:
+            col_level0 = [str(c[0]) if c[0] is not None else "" for c in df.columns]
+            col_level1 = [str(c[1]) if c[1] is not None else "" for c in df.columns]
+        else:
+            col_level0 = [str(c) for c in df.columns]
+            col_level1 = [""] * len(df.columns)
+
+        n_cols = len(df.columns)
+
+        # -------------------------
+        # Write header rows
+        # -------------------------
+        # Row 1: level 0
+        for j in range(n_cols):
+            cell = ws.cell(row=1, column=j + 1, value=col_level0[j])
+            cell.font = header_font
+            cell.alignment = center
+
+        # Row 2: level 1
+        for j in range(n_cols):
+            cell = ws.cell(row=2, column=j + 1, value=col_level1[j])
+            cell.font = header_font
+            cell.alignment = center
+
+        # Merge contiguous identical labels in row 1
+        j = 0
+        while j < n_cols:
+            label = col_level0[j]
+            start = j
+            end = j
+            while end + 1 < n_cols and col_level0[end + 1] == label:
+                end += 1
+            if end > start and label != "":
+                ws.merge_cells(start_row=1, start_column=start + 1, end_row=1, end_column=end + 1)
+            j = end + 1
+
+        # -------------------------
+        # Write data
+        # -------------------------
+        for i, row in enumerate(df.itertuples(index=False), start=3):
+            for j, val in enumerate(row, start=1):
+                ws.cell(row=i, column=j, value=val)
+
+        # -------------------------
+        # Styling / ergonomics
+        # -------------------------
+        ws.freeze_panes = freeze_panes
+
+        # Center headers already; you can also align all cells left/center if desired.
+        ws.row_dimensions[1].height = 22
+        ws.row_dimensions[2].height = 18
+
+        # Auto width (basic)
+        if auto_width:
+            for col_idx in range(1, n_cols + 1):
+                col_letter = get_column_letter(col_idx)
+                max_len = 0
+                for row_idx in range(1, min(ws.max_row, 2000) + 1):  # cap scan for speed
+                    v = ws.cell(row=row_idx, column=col_idx).value
+                    if v is None:
+                        continue
+                    max_len = max(max_len, len(str(v)))
+                ws.column_dimensions[col_letter].width = min(max(10, max_len + 2), 45)
+
+        wb.save(filepath)
+
+
+
+
+
     def export_tables_to_excel(tables: dict[str, pd.DataFrame], filepath: str) -> None:
         """
-        Export multiple tables to a single Excel file (one sheet per key).
-        Handles MultiIndex columns by flattening them automatically.
+        Export all target tables into ONE Excel sheet, concatenated, with merged headers
+        if MultiIndex columns are present. Same call signature as before.
         """
-        with pd.ExcelWriter(filepath, engine="openpyxl") as writer:
-            for sheet_name, df in tables.items():
-                safe_name = str(sheet_name)[:31]  # Excel sheet name max length
-                df_out = flatten_multiindex_columns(df)
-                df_out.to_excel(writer, sheet_name=safe_name, index=False)
-    
+        if not tables:
+            raise ValueError("tables is empty")
+
+        # --- concat tables (keep MultiIndex columns!)
+        dfs = []
+        for target_name, df in tables.items():
+            df2 = df.copy()
+
+            if isinstance(df2.columns, pd.MultiIndex):
+                if ("Target", "") in df2.columns:
+                    df2[("Target", "")] = df2[("Target", "")].fillna(target_name)
+                else:
+                    df2.insert(0, ("Target", ""), target_name)
+            else:
+                if "Target" in df2.columns:
+                    df2["Target"] = df2["Target"].fillna(target_name)
+                else:
+                    df2.insert(0, "Target", target_name)
+
+            dfs.append(df2)
+            blank = pd.DataFrame([[np.nan] * df2.shape[1]], columns=df2.columns)
+            dfs.append(blank)
+
+        df_all = pd.concat(dfs, ignore_index=True)
+
+        # --- write with openpyxl
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "CV_ALL"
+
+        header_font = Font(bold=True)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        # If MultiIndex columns -> 2 header rows. Otherwise 1.
+        is_mi = isinstance(df_all.columns, pd.MultiIndex) and df_all.columns.nlevels >= 2
+
+        if is_mi:
+            metrics = [str(c[0]) if c[0] is not None else "" for c in df_all.columns]
+            stats   = [str(c[1]) if c[1] is not None else "" for c in df_all.columns]
+
+            # Row 1: metric (merge identical adjacent metrics)
+            for j, v in enumerate(metrics, start=1):
+                cell = ws.cell(row=1, column=j, value=v)
+                cell.font = header_font
+                cell.alignment = center
+
+            # Row 2: stat (mean/std)
+            for j, v in enumerate(stats, start=1):
+                cell = ws.cell(row=2, column=j, value=v)
+                cell.font = header_font
+                cell.alignment = center
+
+            # Merge row 1 blocks
+            j = 0
+            n_cols = len(metrics)
+            while j < n_cols:
+                lab = metrics[j]
+                start = j
+                end = j
+                while end + 1 < n_cols and metrics[end + 1] == lab:
+                    end += 1
+                if lab != "" and end > start:
+                    ws.merge_cells(start_row=1, start_column=start + 1, end_row=1, end_column=end + 1)
+                j = end + 1
+
+            data_start_row = 3
+
+        else:
+            # Single header row
+            for j, v in enumerate(df_all.columns, start=1):
+                cell = ws.cell(row=1, column=j, value=str(v))
+                cell.font = header_font
+                cell.alignment = center
+            data_start_row = 2
+
+        # Write data
+        for i, row in enumerate(df_all.itertuples(index=False), start=data_start_row):
+            for j, val in enumerate(row, start=1):
+                ws.cell(row=i, column=j, value=val)
+
+        # Freeze panes
+        ws.freeze_panes = f"A{data_start_row}"
+
+        # Auto width (simple)
+        for col_idx in range(1, ws.max_column + 1):
+            col_letter = get_column_letter(col_idx)
+            max_len = 0
+            for row_idx in range(1, min(ws.max_row, 1200) + 1):
+                v = ws.cell(row=row_idx, column=col_idx).value
+                if v is None:
+                    continue
+                max_len = max(max_len, len(str(v)))
+            ws.column_dimensions[col_letter].width = min(max(10, max_len + 2), 45)
+
+        wb.save(filepath)
+
+
+    def concat_tables_with_separators(tables: list[pd.DataFrame], sep_rows: int = 1) -> pd.DataFrame:
+        """Concatenate multiple tables (same columns) and insert blank separator rows."""
+        if not tables:
+            raise ValueError("No tables provided.")
+        cols = tables[0].columns
+        out_parts = []
+        for i, df in enumerate(tables):
+            if not df.columns.equals(cols):
+                raise ValueError("All tables must have the same columns to be concatenated.")
+            out_parts.append(df)
+            if i < len(tables) - 1 and sep_rows > 0:
+                blank = pd.DataFrame([[np.nan] * len(cols)] * sep_rows, columns=cols)
+                out_parts.append(blank)
+        return pd.concat(out_parts, ignore_index=True)
+
+
+    def export_concat_table_to_excel_with_section_headers(
+        df: pd.DataFrame,
+        filepath: str,
+        sheet_name: str = "Summary",
+        freeze_panes: str = "A4",
+        auto_width: bool = True,
+    ) -> None:
+        """
+        Export a DataFrame with MultiIndex columns (metric, stat) to Excel with:
+        Row 1: section headers (your exact titles) with merged cells
+        Row 2: metric headers (merged by metric)
+        Row 3: subheaders (mean/std)
+        Row 4+: data
+
+        Expected conventions for metric names (level 0):
+        - RSE_*                         -> section "RSE sur les valeurs sommées"
+        - *_sum (Pearson_sum, MAE_sum…) -> section "MESURES QUALITE sur les VALEURS SOMMÉES"
+        - *_meanGrp                     -> section "MESURES QUALITE sur les VALEURS MOYENNES"
+        - N_groups                      -> section "Population"
+        - plus left info columns like Model/Group_size/Target (non-section, kept as is)
+        """
+        wb = Workbook()
+        ws = wb.active
+        ws.title = sheet_name[:31]
+
+        header_font = Font(bold=True)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        # ----- Extract columns
+        if isinstance(df.columns, pd.MultiIndex) and df.columns.nlevels >= 2:
+            metrics = [str(c[0]) if c[0] is not None else "" for c in df.columns]
+            stats   = [str(c[1]) if c[1] is not None else "" for c in df.columns]
+        else:
+            # fallback: no multiindex
+            metrics = [str(c) for c in df.columns]
+            stats = [""] * len(df.columns)
+
+        n_cols = len(df.columns)
+
+        # ----- Identify sections (your exact titles)
+        # Left “info” columns are those not matching known patterns
+        def _section_for_metric(m: str) -> str:
+            if m.startswith("RSE_"):
+                return "RSE sur les valeurs sommées"
+            if m.endswith("_sum"):
+                return "MESURES QUALITE sur les VALEURS SOMMÉES"
+            if m.endswith("_meanGrp"):
+                return "MESURES QUALITE sur les VALEURS MOYENNES"
+            if m == "N_groups":
+                return "Population"
+            # anything else (Model, Group_size, Target, etc.)
+            return ""
+
+        sections = [_section_for_metric(m) for m in metrics]
+
+        # ----- Write header rows
+        # Row 1: section headers
+        for j in range(n_cols):
+            c = ws.cell(row=1, column=j + 1, value=sections[j])
+            c.font = header_font
+            c.alignment = center
+
+        # Row 2: metric headers (level 0)
+        for j in range(n_cols):
+            c = ws.cell(row=2, column=j + 1, value=metrics[j])
+            c.font = header_font
+            c.alignment = center
+
+        # Row 3: subheaders (mean/std)
+        for j in range(n_cols):
+            c = ws.cell(row=3, column=j + 1, value=stats[j])
+            c.font = header_font
+            c.alignment = center
+
+        # ----- Merge contiguous identical labels on row 1 (sections)
+        j = 0
+        while j < n_cols:
+            label = sections[j]
+            start = j
+            end = j
+            while end + 1 < n_cols and sections[end + 1] == label:
+                end += 1
+            # Merge only if label non-empty and spans > 1 col
+            if label != "" and end > start:
+                ws.merge_cells(start_row=1, start_column=start + 1, end_row=1, end_column=end + 1)
+            j = end + 1
+
+        # ----- Merge contiguous identical labels on row 2 (metrics)
+        j = 0
+        while j < n_cols:
+            label = metrics[j]
+            start = j
+            end = j
+            while end + 1 < n_cols and metrics[end + 1] == label:
+                end += 1
+            if label != "" and end > start:
+                ws.merge_cells(start_row=2, start_column=start + 1, end_row=2, end_column=end + 1)
+            j = end + 1
+
+        # ----- Write data starting row 4
+        for i, row in enumerate(df.itertuples(index=False), start=4):
+            for j, val in enumerate(row, start=1):
+                ws.cell(row=i, column=j, value=val)
+
+        # ----- Cosmetic
+        ws.freeze_panes = freeze_panes
+        ws.row_dimensions[1].height = 22
+        ws.row_dimensions[2].height = 20
+        ws.row_dimensions[3].height = 18
+
+        # Auto width (basic, capped)
+        if auto_width:
+            for col_idx in range(1, n_cols + 1):
+                col_letter = get_column_letter(col_idx)
+                max_len = 0
+                for row_idx in range(1, min(ws.max_row, 1500) + 1):
+                    v = ws.cell(row=row_idx, column=col_idx).value
+                    if v is None:
+                        continue
+                    max_len = max(max_len, len(str(v)))
+                ws.column_dimensions[col_letter].width = min(max(10, max_len + 2), 45)
+
+        wb.save(filepath)
+
 
     def flatten_multiindex_columns(df: pd.DataFrame, sep: str = "__") -> pd.DataFrame:
         """
@@ -841,6 +1168,11 @@ if LOAD_RAW_FEATURES_VF:
             print(f'Target: {target}')      
             y = dataset_obj.Y[target]
             max_groups=None
+            #
+            #mode_groupement="random"
+            mode_groupement="knn"
+            #
+
             spatial_results =comparison_regression_models_services.cv_spatial_knn_protocol_ABC(
                 X_B=X_C,
                 X_C=X_C,
@@ -848,7 +1180,8 @@ if LOAD_RAW_FEATURES_VF:
                 y=y,
                 baseline_B_features=baseline_B_features,
                 k_groups=pks,
-                max_groups=max_groups
+                max_groups=max_groups,
+                grouping=mode_groupement
             )
 
             summary_spatial = comparison_regression_models_services.build_readable_cv_table(
@@ -859,12 +1192,6 @@ if LOAD_RAW_FEATURES_VF:
             round_digits=3
              )
 
-            # summary_spatial = (
-            #     spatial_results
-            #     .groupby(["model", "group_size"])
-            #     .agg(["mean", "std"])
-            # )
-            
             Test_aggreg_ABC_KNN_summaries[target]=summary_spatial
 
             print(f'\nSummary: {target}:')
@@ -910,7 +1237,7 @@ if LOAD_RAW_FEATURES_VF:
                 scatters_results(target=target,min_max=min_max, k=groups_regression)
 
         rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique'
-        file_out=os.path.join(rep_out,f'cv_knn_summary.xlsx')
+        file_out=os.path.join(rep_out,f'cv_knn_summary_{mode_groupement}.xlsx')
 
         export_tables_to_excel(Test_aggreg_ABC_KNN_summaries, file_out)
         print(f'knn summary exporté vers:\n {file_out}')
@@ -920,7 +1247,6 @@ if LOAD_RAW_FEATURES_VF:
         if TEST_AGGREG_ABC_KNN_VISU_VF:
                 print('\n')
                 print(target)
-                
                 
                 if visu_plots_vf:
                     visu.plot_graph1_multitarget(
@@ -937,22 +1263,27 @@ if LOAD_RAW_FEATURES_VF:
 
     
     if TEST_VISU_par_GROUPE_v2_vf:
-        target="contenant enterré"
-        k_list=[20, 60, 90]
+        k_list=[10, 50, 90]
         mode="sum" # ou "mean"
+        #mode="mean"
+        #grouping_mode="random"
+        grouping_mode="knn"
 
-        fig, axes =visu. plot_lgbm_true_vs_pred_by_group_size(
-            dataset_obj=dataset_obj,
-            coords=coords,                      # np.array (n,2) aligné avec dataset_obj
-            target_col=target,
-            features_cols=features_utiles,
-            k_list=k_list,
-            mode=mode,                            # ou "mean"
-            max_groups=600,
-            random_state=42,
-            lgbm_params=lgbm_params,
-        )
-        plt.show()
+
+        for target in targets:
+            fig, axes =visu. plot_lgbm_true_vs_pred_by_group_size(
+                dataset_obj=dataset_obj,
+                coords=coords,                      # np.array (n,2) aligné avec dataset_obj
+                target_col=target,
+                features_cols=features_utiles,
+                k_list=k_list,
+                mode=mode,                            # ou "mean"
+                max_groups=600,
+                random_state=42,
+                lgbm_params=lgbm_params,
+                grouping=grouping_mode
+            )
+            plt.show()
 
 
     if TEST_APPROCHE_par_CLASSES_VF:
