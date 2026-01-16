@@ -239,6 +239,7 @@ def cv_spatial_knn_protocol_ABC(
       - RSE distribution (knn: per-point neighborhoods, random: per-random-group draws)
       - Metrics on aggregated SUMS
       - Metrics on aggregated MEANS (sum / k)
+      - NEW: observed distribution stats on group targets (mean/std for sums and means)
     """
 
     grouping = grouping.lower().strip()
@@ -327,27 +328,14 @@ def cv_spatial_knn_protocol_ABC(
             seed_rse = int(random_state + 1000 * fold + 10 * k)
 
             if grouping == "knn":
-                rse_A = spatial_grouping_services.spatial_knn_rse(
-                    coords_test, y_test_np, y_pred_A, k
-                )
-                rse_B = spatial_grouping_services.spatial_knn_rse(
-                    coords_test, y_test_np, y_pred_B, k
-                )
-                rse_C = spatial_grouping_services.spatial_knn_rse(
-                    coords_test, y_test_np, y_pred_C, k
-                )
+                rse_A = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_A, k)
+                rse_B = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_B, k)
+                rse_C = spatial_grouping_services.spatial_knn_rse(coords_test, y_test_np, y_pred_C, k)
             else:
-                rse_A = spatial_grouping_services.random_group_rse(
-                    y_test_np, y_pred_A, k=k, max_groups=max_groups, seed=seed_rse
-                )
-                rse_B = spatial_grouping_services.random_group_rse(
-                    y_test_np, y_pred_B, k=k, max_groups=max_groups, seed=seed_rse
-                )
-                rse_C = spatial_grouping_services.random_group_rse(
-                    y_test_np, y_pred_C, k=k, max_groups=max_groups, seed=seed_rse
-                )
+                rse_A = spatial_grouping_services.random_group_rse(y_test_np, y_pred_A, k=k, max_groups=max_groups, seed=seed_rse)
+                rse_B = spatial_grouping_services.random_group_rse(y_test_np, y_pred_B, k=k, max_groups=max_groups, seed=seed_rse)
+                rse_C = spatial_grouping_services.random_group_rse(y_test_np, y_pred_C, k=k, max_groups=max_groups, seed=seed_rse)
 
-            # Precompute RSE stats
             rse_stats = {
                 "A_mean": (
                     float(np.mean(rse_A)), float(np.median(rse_A)),
@@ -372,8 +360,16 @@ def cv_spatial_knn_protocol_ABC(
             true_B, pred_B = _make_groups(coords_test, y_test_np, y_pred_B, k, seed_groups)
             true_C, pred_C = _make_groups(coords_test, y_test_np, y_pred_C, k, seed_groups)
 
-            true_sums = true_A
+            # Sanity: true vectors should match; use A as reference
+            true_sums = np.asarray(true_A, dtype=float)
             true_means = true_sums / float(k)
+
+            # NEW: observed distribution stats (per fold & k)
+            obs_sum_mean = float(np.mean(true_sums)) if len(true_sums) else np.nan
+            obs_sum_std  = float(np.std(true_sums, ddof=0)) if len(true_sums) else np.nan
+
+            obs_meanGrp_mean = float(np.mean(true_means)) if len(true_means) else np.nan
+            obs_meanGrp_std  = float(np.std(true_means, ddof=0)) if len(true_means) else np.nan
 
             for model_name, pred_sums in [
                 ("A_mean", pred_A),
@@ -383,13 +379,11 @@ def cv_spatial_knn_protocol_ABC(
                 mean_rse, median_rse, p90_rse, p95_rse = rse_stats[model_name]
 
                 # --- SUM metrics
-                mae_sum, rmse_sum, pear_sum, spear_sum, bias_sum, rel_bias_sum = \
-                    _agg_metrics(true_sums, pred_sums)
+                mae_sum, rmse_sum, pear_sum, spear_sum, bias_sum, rel_bias_sum = _agg_metrics(true_sums, pred_sums)
 
                 # --- MEAN metrics
-                pred_means = pred_sums / float(k)
-                mae_mean, rmse_mean, pear_mean, spear_mean, bias_mean, rel_bias_mean = \
-                    _agg_metrics(true_means, pred_means)
+                pred_means = np.asarray(pred_sums, dtype=float) / float(k)
+                mae_mean, rmse_mean, pear_mean, spear_mean, bias_mean, rel_bias_mean = _agg_metrics(true_means, pred_means)
 
                 records.append({
                     "fold": fold,
@@ -419,11 +413,18 @@ def cv_spatial_knn_protocol_ABC(
                     "bias_mean_grp": bias_mean,
                     "rel_bias_mean_grp": rel_bias_mean,
 
+                    # NEW: observed stats (same for all models; repeated for convenience)
+                    "obs_sum_mean": obs_sum_mean,
+                    "obs_sum_std": obs_sum_std,
+                    "obs_mean_grp_mean": obs_meanGrp_mean,
+                    "obs_mean_grp_std": obs_meanGrp_std,
+
                     "n_groups": int(len(true_sums)),
                     "max_groups": None if max_groups is None else int(max_groups),
                 })
 
     return pd.DataFrame(records)
+
 
 
 
@@ -441,13 +442,17 @@ def build_readable_cv_table(
         "mean_rse", "median_rse", "p90_rse", "p95_rse",
         "pearson_r_sum", "spearman_r_sum", "mae_sum", "rmse_sum", "bias_sum", "rel_bias_sum",
         "pearson_r_mean_grp", "spearman_r_mean_grp", "mae_mean_grp", "rmse_mean_grp", "bias_mean_grp", "rel_bias_mean_grp",
+
+        # NEW: observed stats
+        "obs_sum_mean", "obs_sum_std",
+        "obs_mean_grp_mean", "obs_mean_grp_std",
+
         "n_groups",
     ]
     metrics = [m for m in candidate_metrics if m in df.columns]
     if not metrics:
         raise ValueError("No recognized metrics found in df_long.")
 
-    # NEW: grouping dimension if present
     group_keys = ["model", "group_size"]
     if "grouping" in df.columns:
         group_keys = ["grouping"] + group_keys
@@ -455,9 +460,7 @@ def build_readable_cv_table(
     agg_map = {m: ["mean", "std"] for m in metrics}
     out = df.groupby(group_keys, as_index=True).agg(agg_map)
 
-    # Optional ordering (model/group only; grouping stays first level)
     if model_order is not None:
-        # model is level -2 if grouping exists, else level 0
         model_level = 1 if "grouping" in df.columns else 0
         out = out.reindex(model_order, level=model_level)
     if group_order is not None:
@@ -481,6 +484,13 @@ def build_readable_cv_table(
         "rmse_mean_grp": "RMSE_meanGrp",
         "bias_mean_grp": "Bias_meanGrp",
         "rel_bias_mean_grp": "RelBias_meanGrp",
+
+        # NEW: observed stats (labels explicites)
+        "obs_sum_mean": "Observed_sum_mean",
+        "obs_sum_std": "Observed_sum_std",
+        "obs_mean_grp_mean": "Observed_meanGrp_mean",
+        "obs_mean_grp_std": "Observed_meanGrp_std",
+
         "n_groups": "N_groups",
     }
     out = out.rename(columns=rename_metrics, level=0)
@@ -495,13 +505,12 @@ def build_readable_cv_table(
         if pd.api.types.is_numeric_dtype(out[col]):
             out[col] = out[col].round(round_digits)
 
-    # NEW: reset index with grouping if present
-    out = out.reset_index()
-    out = out.rename(columns={"model": "Model", "group_size": "Group_size"})
+    out = out.reset_index().rename(columns={"model": "Model", "group_size": "Group_size"})
     if "grouping" in out.columns:
         out = out.rename(columns={"grouping": "Grouping"})
 
     return out
+
 
 
 

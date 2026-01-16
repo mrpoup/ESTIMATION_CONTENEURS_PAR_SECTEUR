@@ -46,7 +46,7 @@ if TEST_TOUT_VF==False:
     #
     TEST_VISU_COURBES_REGRESSION_VF=False
     #
-    TEST_VISU_COURBES_AGREG_vf=True
+    TEST_VISU_COURBES_AGREG_vf=False
     TEST_VISU_SCATTERS_par_GROUPE_v2_vf=False
     #
     TEST_APPROCHE_par_CLASSES_VF=False
@@ -794,6 +794,8 @@ if LOAD_RAW_FEATURES_VF:
 
 
     pks=( 10, 20, 40, 60, 90)
+    #pks=( 2,4,5,10)
+
     groups_regression = 40
     
 
@@ -1318,9 +1320,9 @@ if LOAD_RAW_FEATURES_VF:
             print(f'Target: {target}')      
             y = dataset_obj.Y[target]
             max_groups=None
-            #
-            mode_groupement="random"
-            #mode_groupement="knn"
+            #c
+            #mode_groupement="random"
+            mode_groupement="knn"
             #
 
             spatial_results =comparison_regression_models_services.cv_spatial_knn_protocol_ABC(
@@ -1387,7 +1389,7 @@ if LOAD_RAW_FEATURES_VF:
             #         min_max=None
             #     scatters_results(target=target,min_max=min_max, k=groups_regression)
 
-        export_excel_vf=False
+        export_excel_vf=True
         if export_excel_vf:
             rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique'
             file_out=os.path.join(rep_out,f'cv_knn_summary_{mode_groupement}.xlsx')
@@ -1466,7 +1468,7 @@ if LOAD_RAW_FEATURES_VF:
         #  'Spearman_meanGrp', 'Spearman_sum']
 
         else:  #sinon...action!
-            mode_label="cumul"
+            mode_label="moyenne"
             fig, axes=plot_summaries_by_target(
                 summaries_by_target=Test_aggreg_ABC_KNN_summaries,
                 metrics=["RSE_median", "RSE_p95"],
@@ -1522,8 +1524,8 @@ if LOAD_RAW_FEATURES_VF:
         k_list=[10, 50, 90]
         #mode="sum" # ou "mean"
         mode="mean"
-        grouping_mode="random"
-        #grouping_mode="knn"
+        #grouping_mode="random"
+        grouping_mode="knn"
 
 
         for target in targets:
