@@ -39,9 +39,9 @@ LOAD_RAW_FEATURES_VF=True
 TEST_TOUT_VF=False
     #_____________________
 if TEST_TOUT_VF==False:
-    TEST_BASES_LINES_VF=True
+    TEST_BASES_LINES_VF=False
     #
-    TEST_AGGREG_ABC_KNN_VF=True
+    TEST_AGGREG_ABC_KNN_VF=False
     TEST_AGGREG_ABC_KNN_VISU_VF=False
     #
     TEST_VISU_COURBES_REGRESSION_VF=False
@@ -452,7 +452,14 @@ if LOAD_RAW_FEATURES_VF:
         targets="contenant enterré", "grand contenant", "petit contenant"
         #__________________________________________
 
+          #__________________________________________
+        #targets="log1p_contenant enterré", "log1p_grand contenant", "log1p_petit contenant"
+        #__________________________________________
+
+   
+
         X, Y, ids = dataset_obj.X, dataset_obj.Y, dataset_obj.ids
+
 
         # print(f'->colonnes x:\n {X.columns}')
         
@@ -506,7 +513,7 @@ if LOAD_RAW_FEATURES_VF:
         print("Number of ratio cols:", len(ratio_cols))
 
 
-        VISU_CORREL_VF=False
+        VISU_CORREL_VF=True
         if VISU_CORREL_VF:
             
             features_col=dataset_obj.feature_names
@@ -530,9 +537,6 @@ if LOAD_RAW_FEATURES_VF:
             'ratio_veg_b10_m', 'ratio_veg_b50_m'
         ]
 
-
-            
-
             dataset_target_names=dataset_obj.target_names
             print(dataset_target_names)
             #['contenant enterré', 'grand contenant', 'petit contenant']
@@ -548,14 +552,21 @@ if LOAD_RAW_FEATURES_VF:
 
             visu_spearman_correl_vf=True
             if visu_spearman_correl_vf:
-                plot_vf=False
+                plot_vf=True
                 features_utiles=None
 
                 for target in targets:
-                    
+                    sp=dataset_obj.pearson_correlations(target_col=target, features_cols=features_utiles,plot=plot_vf)
+                    print((f'\nPearson correlation {target}:'))
+                    print(sp)
+
+                for target in targets:
                     sp=dataset_obj.spearman_correlations(target_col=target, features_cols=features_utiles,plot=plot_vf)
                     print((f'\nSpearman correlation {target}:'))
                     print(sp)
+                
+                sys.exit()
+                
               
 
                 
@@ -647,8 +658,7 @@ if LOAD_RAW_FEATURES_VF:
             
     
 
-    NEW_MODELS_VF=False
-    PREDICTION_MONO_VF=True
+
 
     lgbm_params = {
                     "objective": "poisson",
@@ -661,6 +671,8 @@ if LOAD_RAW_FEATURES_VF:
                     "seed": 42
                 }
     
+    NEW_MODELS_VF=True
+    PREDICTION_MONO_VF=True
     if NEW_MODELS_VF:
         if PREDICTION_MONO_VF:
 
@@ -777,6 +789,7 @@ if LOAD_RAW_FEATURES_VF:
                 file_out=os.path.join(rep_out,f'model_mono_{target.replace(' ','_')}.csv')
                 print(file_out)
                 results.to_csv(file_out)
+            sys.exit()
 
            
 
@@ -1389,7 +1402,7 @@ if LOAD_RAW_FEATURES_VF:
             #         min_max=None
             #     scatters_results(target=target,min_max=min_max, k=groups_regression)
 
-        export_excel_vf=True
+        export_excel_vf=False
         if export_excel_vf:
             rep_out=r'C:\Users\aubin\ACTIONS2\Geo2I\Moustiques\Analyse_fichier_moustique'
             file_out=os.path.join(rep_out,f'cv_knn_summary_{mode_groupement}.xlsx')
@@ -1696,14 +1709,16 @@ if LOAD_RAW_FEATURES_VF:
         
         conditionnal_histo_vf=False
         if conditionnal_histo_vf:
-            targets='contenant enterré','grand contenant', 'petit contenant'
             for target_col in targets:
                 for condition_col in targets:
                     if condition_col==target_col:
                         continue
                     cloud_visu.plot_conditional_histograms(gpd_filtered_features,target_col=target_col,condition_col=condition_col)
 
+        print(cloud_visu.compute_pearson_correlations(gpd_filtered_features))
         print(cloud_visu.compute_spearman_correlations(gpd_filtered_features))
+
+       
 
     
 

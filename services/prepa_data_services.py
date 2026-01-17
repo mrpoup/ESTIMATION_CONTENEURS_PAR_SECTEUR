@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 from scipy.stats import spearmanr
+from scipy.stats import pearsonr
 
 @dataclass(frozen=True)
 class DatasetArtifacts:
@@ -88,13 +89,118 @@ class DatasetArtifacts:
         # Plot
         if plot:
             corr_plot = corr_df.dropna(subset=["spearman_corr"])
-            plt.figure(figsize=(8, max(4, 0.3 * len(corr_plot))))
-            plt.barh(corr_plot["feature"], corr_plot["spearman_corr"])
-            plt.axvline(0, linestyle="--", linewidth=1)
-            plt.xlabel("Spearman correlation")
-            plt.title(f"Spearman correlations with target: {target_col}")
-            plt.gca().invert_yaxis()
-            plt.tight_layout()
+            # plt.figure(figsize=(8, max(4, 0.3 * len(corr_plot))))
+            # plt.barh(corr_plot["feature"], corr_plot["spearman_corr"])
+            # plt.axvline(0, linestyle="--", linewidth=1)
+            # plt.xlabel("Spearman correlation")
+            # plt.title(f"Spearman correlations with target: {target_col}")
+            # plt.gca().invert_yaxis()
+            # plt.tight_layout()
+            # plt.show()
+
+            fig, ax = plt.subplots(figsize=(8, max(4, 0.3 * len(corr_plot))))
+
+            ax.barh(corr_plot["feature"], corr_plot["spearman_corr"])
+            ax.axvline(0, linestyle="--", linewidth=1)
+            ax.set_xlabel("spearman correlation")
+            ax.set_title(f"spearman correlation with target: {target_col}")
+            ax.invert_yaxis()
+
+            # 🔽 Réduction du corps du graphe
+            # left, bottom, width, height
+            ax.set_position([0.35, 0.1, 0.40, 0.8])
+
+            plt.show()
+
+        return corr_df
+    
+    def pearson_correlations(
+        self,
+        target_col: str,
+        features_cols: list[str] | None = None,
+        plot: bool = True
+    ) -> pd.DataFrame:
+
+        if target_col not in self.Y.columns:
+            raise ValueError(f"Target column '{target_col}' not found in Y.")
+
+        target_data = self.Y[target_col]
+
+        # Select features
+        if features_cols is None:
+            # by default: all columns from X
+            features_cols = list(self.X.columns)
+
+        # Optional: keep only existing columns (helps if features_cols contains typos)
+        missing = [c for c in features_cols if c not in self.X.columns]
+        if missing:
+            raise ValueError(f"Some features are missing from X: {missing[:10]}")
+
+        features_data = self.X[features_cols]
+
+        # NaN checks
+        x_na = features_data[features_data.isna().any(axis=1)]
+        if len(x_na) > 0:
+            print(f"Existe des features nulles ({len(x_na)}):")
+            print(x_na.head(3))
+
+        y_na = target_data[target_data.isna()]
+        if len(y_na) > 0:
+            print(f"Existe des targets nulles ({len(y_na)}):")
+            print(y_na.head(3))
+
+        if len(y_na) > 0 or len(x_na) > 0:
+            sys.exit()
+        else:
+            print("Pas de NaN détecté")
+
+        results = []
+
+        # Compute feature-by-feature
+        for feat in features_cols:
+            x = features_data[feat]
+
+            # Spearman expects 1D arrays
+            corr, pval = pearsonr(target_data.to_numpy(), x.to_numpy())
+
+            results.append({
+                "feature": feat,
+                "pearson_corr": float(corr) if corr is not None else np.nan,
+                "p_value": float(pval) if pval is not None else np.nan,
+                "abs_corr": abs(float(corr)) if corr is not None else np.nan
+            })
+
+        corr_df = (
+            pd.DataFrame(results)
+            .sort_values("abs_corr", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        # Plot
+        if plot:
+            corr_plot = corr_df.dropna(subset=["pearson_corr"])
+
+            # plt.figure(figsize=(8, max(4, 0.3 * len(corr_plot))))
+            # plt.barh(corr_plot["feature"], corr_plot["pearson_corr"])
+            # plt.axvline(0, linestyle="--", linewidth=1)
+            # plt.xlabel("pearson correlation")
+            # plt.title(f"pearson correlations with target: {target_col}")
+            # plt.gca().invert_yaxis()
+            # plt.tight_layout()
+            # plt.show()
+
+            fig, ax = plt.subplots(figsize=(8, max(4, 0.3 * len(corr_plot))))
+
+            ax.barh(corr_plot["feature"], corr_plot["pearson_corr"])
+            ax.axvline(0, linestyle="--", linewidth=1)
+            ax.set_xlabel("pearson correlation")
+            ax.set_title(f"pearson correlations with target: {target_col}")
+            ax.invert_yaxis()
+
+            # 🔽 Réduction du corps du graphe
+            # left, bottom, width, height
+            ax.set_position([0.35, 0.1, 0.40, 0.8])
+
             plt.show()
 
         return corr_df
@@ -347,6 +453,17 @@ class BuildingsCountDataPreparationService:
             target_cols_to_keep = [c for c in default_main_targets if c in targets_col]
 
         Y = data[target_cols_to_keep].copy()
+        #
+        add_log1p_targets=True
+        if add_log1p_targets:
+            
+            for c in target_cols_to_keep:
+                log_col_name = f"log1p_{c}"
+                # log1p requires non-negative; if negatives exist, raise
+                if (data[c].astype(float) < 0).any():
+                    raise DataSchemaError(f"Negative values found in '{c}', cannot apply log1p.")
+                Y[log_col_name] = np.log1p(data[c].astype(float))
+                
 
         # Basic sanitization: ensure numeric types for X/Y except id
         X = self._coerce_numeric_frame(X, frame_name="X")
@@ -482,6 +599,8 @@ class BuildingsCountDataPreparationService:
 
         return data, created
 
+
+   
     def _coerce_numeric_frame(self, df: pd.DataFrame, *, frame_name: str) -> pd.DataFrame:
         out = df.copy()
         for c in out.columns:
